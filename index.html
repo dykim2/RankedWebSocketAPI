@@ -13,7 +13,17 @@
         <button onClick="hello()">Say Hi</button>
     </body>
     <script>
-        // Create WebSocket connection.
+        const request = {
+            id: 178,
+            type: "add",
+            changed: "pick",
+            data: {
+                // boss: "Dendro Cube"
+                team: 1,
+                character: 11
+            }
+        }
+        // Create WebSocket connection
         const socket = new WebSocket("ws://localhost:3000");
 
         // Connection opened
@@ -23,7 +33,7 @@
 
         // Listen for messages
         socket.addEventListener("message", function (event) {
-            console.log("Message from server ", event.data);
+            console.log(JSON.parse(event.data));
         });
         
         const sendMessage = () => {
@@ -34,7 +44,7 @@
                 message: "4332",
                 info: "hello"
             }
-            socket.send(JSON.stringify(info));
+            socket.send(JSON.stringify(request));
         }
     </script>
 </html>
