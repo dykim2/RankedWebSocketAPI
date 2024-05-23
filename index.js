@@ -29,6 +29,9 @@ try{
                     result = await createGame(jsonStr.id);
                     break;
                 }
+                case "get":
+                    result = await getGame(jsonStr.id);
+                    break;
                 case "add":
                     result = await addItems(jsonStr);
                     break;
@@ -36,10 +39,12 @@ try{
                     result = await addTimes(jsonStr);
                     break;
                 case "switch":
-                    result = switchPhase(jsonStr.id, jsonStr.data.phase);
+                    result = await switchPhase(jsonStr.id, jsonStr.phase);
                     break;
                 default:
                     throw new Error("Please enter a valid type.")
+                // add a few extra options
+
             }
             // ws.send("message obtained: " + message); 
             console.log(result);
@@ -52,6 +57,11 @@ try{
         });
         ws.on('error', err => {
             console.log(err);
+            ws.send(JSON.stringify({
+                message: "Failure",
+                error: err.toString(),
+            }))
+            return;
         })
     })
 }
@@ -61,7 +71,7 @@ catch(err){
 mongoose
   .connect(MONGO_URL)
   .then(() => {
-    console.log("connected to the mongodb database");
+    
   })
   .catch((err) => {
     console.log(err);
@@ -85,6 +95,9 @@ const createGame = async (data) => {
     };
     // creates a game with the default settings
     return JSON.stringify(await game.create(defaultSettings));
+}
+const getGame = async(data) => {
+    return JSON.stringify(await game.findById(data).lean());
 }
 const addItems = async (info) => {
     // add information
@@ -141,7 +154,7 @@ const addItems = async (info) => {
                 const charPick = await character.findById(info.data.character);
                 if (charPick == null) {
                   throw new Error(
-                    "Please enter a valid character (use the character syntax)"
+                    "Please enter a valid character (use the character syntax)."
                   );
                 }
                 let newPicks = [...gameResult.pickst2, charPick]; // does not matter which team, just any team
@@ -149,7 +162,7 @@ const addItems = async (info) => {
                   !checkAmounts(newPicks, gameResult.division, "pick") ||
                   (await checkExists(info.id, "pickst"+info.data.team, charPick))
                 ) {
-                  // throw new Error("Please do not enter more than the maximum number of picks for a team.");
+                  throw new Error("Please do not enter more than the maximum number of picks for a team.");
                 }
                 // add picks accordingly based on team
                 info.data.team == 1
@@ -189,14 +202,13 @@ const addTimes = async (info) => {
   // update the current times
   // info.data is in format of a three digit array: [team (1 or 2), boss number (0 to 6 or 8 depends on division), new time]
   try{
-    const ID = info.id;
     let timeInfo = info.data;
     if (typeof timeInfo === "undefined" || timeInfo.length != 3) {
         throw new Error("Please enter a valid array size");
     }
     // verify the team number and boss number are valid
     // find game and get times of both teams
-    const gameResult = await game.findById(ID);
+    const gameResult = await game.findById(info.id);
     let currentTimes = [gameResult.timest1, gameResult.timest2];
     
     // change the time
@@ -217,37 +229,47 @@ const addTimes = async (info) => {
     });
   }
 }
-const switchPhase = (ID, phase) => { 
+const switchPhase = async (ID, phase) => { 
     // change state - drafting (setup), playing (progress), game over (finish)
     // send this info back to everyone
-    let cond = false;
-    const keywords = ["setup","progress","finish","1","2"]
-    keywords.forEach(word => {
-        if(word === phase.toLowerCase()){
-            cond = true;
-            if(phase == "1"){
-                phase = "Team 1 Wins"
+    try{
+        let cond = false;
+        const keywords = ["setup","progress","finish","1","2"]
+        keywords.forEach(word => {
+            if(word === phase.toLowerCase()){
+                cond = true;
+                if(phase == "1"){
+                    phase = "Team 1 Wins"
+                }
+                else if(phase == "2"){
+                    phase = "Team 2 Wins"
+                }
             }
-            else if(phase == "2"){
-                phase = "Team 2 Wins"
-            }
+        })
+        if(!cond){
+            throw new Error("Please enter a valid phase.")
         }
-    })
-    if(!cond){
-        throw new Error("Please enter a valid phase.")
+        await game.findByIdAndUpdate(ID, {result: ""+phase}).lean(); // lean since info not needed
+        return JSON.stringify({
+            message: "Success",
+            type: "phase",
+            newPhase: phase,
+        });
     }
-    game.findByIdAndUpdate(ID, {result: phase});
-    return JSON.stringify({
-      message: "Success",
-      type: "phase",
-      newPhase: phase,
-    });
+    catch(err){
+        console.log(err);
+        return JSON.stringify({
+          message: "Failure",
+          error: err.toString(),
+        });
+    }
+    
 }
 
 const checkAmounts = (data, division, type) => {
     // checks the number of bans / picks / bosses is valid, not too many - data is the array
     if (type == "boss") {
-        if (division.toLowerCase == "premiere") {
+        if (division.toLowerCase() == "premiere") {
           // 9 bossses, otherwise 7
           return data.length <= 9
         } else {
@@ -261,8 +283,6 @@ const checkAmounts = (data, division, type) => {
 // check if [value] exists for [item] in the game with ID [ID]
 // this ensures no dupes of characters or items, for picks only used in draft
 
-// looks like sadly i will have to implement the slow way 
-// obtain from 
 const checkExists = async (ID, item, value) => {
     // query the game for the corresponding item
     let targetGame = await game.findById(ID);
@@ -277,4 +297,4 @@ const checkExists = async (ID, item, value) => {
     return false;
 }
 
-server.listen(PORT, () => console.log("listening on port "+PORT));   
+server.listen(PORT, () => console.log("connected!"));   

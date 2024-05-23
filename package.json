@@ -15,5 +15,8 @@
     "express": "^4.19.2",
     "mongoose": "^8.4.0",
     "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "@flydotio/dockerfile": "^0.5.7"
   }
 }

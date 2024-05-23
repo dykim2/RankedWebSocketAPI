@@ -10,7 +10,8 @@ All messages sent to the API must follow the following format:
         boss: "Maguu Kenki",
         team: 1,
         character: 15
-    }
+    },
+    phase: "progress"
 }
 ```
 `id` is the ID of the game you are looking to update. `type` can be one of `create`, `add`, `times`, or `switch`. Choosing another keyword results in an error. This is mandatory.
@@ -24,8 +25,15 @@ data: {
     phase: "setup" // can be setup, progress, and finish. Any other option throws an error.
 }
 ```
+For `times` requests, `data` should be an array of size 3, with a format like follows:
+```json
+{
+    data: [<1 or 2 representing which team is chosen>, <a number from 0 to 6 (or 8 if premier) corresponding to the boss to be updated>, <the time to add to the boss>]
+}
+```
+Make sure to remove the brackets when seding requests.
 
-Some more exanmples of `add` requests:
+Some more examples of `add` requests:
 ```json
 {
     {
