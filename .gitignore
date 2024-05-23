@@ -1,2 +1,6 @@
 .env
 node_modules
+fly.toml
+flyctl.exe
+Dockerfile
+.dockerignore
