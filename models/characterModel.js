@@ -12,6 +12,9 @@ const characterSchema = mongoose.Schema({
   element: {
     type: String,
     required: true
+  },
+  icon: {
+    type: String
   }
 });
 

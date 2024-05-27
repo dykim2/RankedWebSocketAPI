@@ -12,7 +12,6 @@ const mongoose = require("mongoose");
 const game = require("./models/gameModel.js");
 const character = require("./models/characterModel.js")
 
-
 try{
     wss.on('connection', function connection(ws) {
         console.log("new client");
@@ -86,6 +85,7 @@ const createGame = async (data) => {
       division: "Advanced",
       bosses: ["Drake", "None", "None", "None", "None"],
       result: "setup",
+      connected: [0,0,0],
       timest1: [0.0, 0.0, 0.0, 0.0, 0.0],
       timest2: [0.0, 0.0, 0.0, 0.0, 0.0],
       // bans: [baseChar, baseChar, baseChar, baseChar, baseChar, baseChar],
@@ -175,16 +175,6 @@ const addItems = async (info) => {
                     team: info.data.team,
                     pick: info.data.character,
                 });
-                /*
-                    const currentPicks = [gameResult.pickst1, gameResult.pickst2]
-                    let body =
-                    '{"pickst' +
-                    info.data.team +
-                    '": [' +
-                    currentPicks[info.data.team] +
-                    "]}";
-                    return JSON.stringify(await game.findByIdAndUpdate(info.id, JSON.parse(body)).lean())
-                */
             }
             default:
                 throw new Error("Please choose to update a ban, pick, or boss");
@@ -233,10 +223,11 @@ const switchPhase = async (ID, phase) => {
     // change state - drafting (setup), playing (progress), game over (finish)
     // send this info back to everyone
     try{
+        phase = phase.toLowerCase();
         let cond = false;
         const keywords = ["setup","progress","finish","1","2"]
         keywords.forEach(word => {
-            if(word === phase.toLowerCase()){
+            if(word === phase){
                 cond = true;
                 if(phase == "1"){
                     phase = "Team 1 Wins"

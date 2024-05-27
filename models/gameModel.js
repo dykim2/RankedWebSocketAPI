@@ -4,26 +4,30 @@ const gameSchema = mongoose.Schema(
   {
     _id: Number,
     playerst1: {
-      type: [String]
+      type: [String],
     },
     playerst2: {
-      type: [String]
+      type: [String],
     },
     division: {
       type: String,
-      default: "Open",
-      required: false,
+      default: "Advanced",
     },
     bans: {
-      type: [characterSchema]
+      type: [characterSchema],
+      default: [],
     },
     bosses: {
       type: [String],
-      required: true,
+      default: ["Aeonblight Drake"],
     },
     result: {
       type: String,
-      default: "Waiting",
+      default: "waiting", // can be "waiting, setup", "progress", and "finish", or a winning team (1 or 2, in format of a string)
+    },
+    connected: {
+      type: [Number],
+      default: [0, 0, 0], // captain 1, captain 2, ref 1, ref 2 connected?
     },
     team1: {
       type: String,
@@ -35,22 +39,20 @@ const gameSchema = mongoose.Schema(
     },
     timest1: {
       type: [Number],
-      default: [0, 0, 0, 0, 0, 0, 0]
+      default: [0, 0, 0, 0, 0, 0, 0],
     },
     timest2: {
       type: [Number],
-      default: [0, 0, 0, 0, 0, 0, 0]
+      default: [0, 0, 0, 0, 0, 0, 0],
     },
     pickst1: {
-      type: [characterSchema]
+      type: [characterSchema],
+      default: [],
     },
     pickst2: {
-      type: [characterSchema]
+      type: [characterSchema],
+      default: [],
     },
-    phase: {
-      type: String,
-      default: "Setup" // can be "Setup", "In Progress", and "Finished". 
-    }
   },
   {
     timestamps: true,
