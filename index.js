@@ -11,6 +11,7 @@ const development = process.env.NODE_ENV;
 const mongoose = require("mongoose");
 const game = require("./models/gameModel.js");
 const character = require("./models/characterModel.js")
+const boss = require("./models/bossModel.js")
 
 try{
     wss.on('connection', function connection(ws) {
@@ -46,7 +47,6 @@ try{
 
             }
             // ws.send("message obtained: " + message); 
-            console.log(result);
             wss.clients.forEach(function each(client) { // send data back to connected clients
                 if(client.readyState === WebSocket.OPEN){
                   // client !== ws &&
@@ -55,10 +55,10 @@ try{
             })
         });
         ws.on('error', err => {
-            console.log(err);
+            let errVal = development == "development" ? err.toString() : "An error occurred"
             ws.send(JSON.stringify({
                 message: "Failure",
-                error: err.toString(),
+                error: errVal
             }))
             return;
         })
@@ -69,9 +69,6 @@ catch(err){
 }
 mongoose
   .connect(MONGO_URL)
-  .then(() => {
-    
-  })
   .catch((err) => {
     console.log(err);
   });
@@ -83,21 +80,38 @@ const createGame = async (data) => {
       playerst1: ["player1", "player2", "player3"],
       playerst2: ["player4", "player5", "player6"],
       division: "Advanced",
-      bosses: ["Drake", "None", "None", "None", "None"],
       result: "setup",
       connected: [0,0,0],
       timest1: [0.0, 0.0, 0.0, 0.0, 0.0],
       timest2: [0.0, 0.0, 0.0, 0.0, 0.0],
-      // bans: [baseChar, baseChar, baseChar, baseChar, baseChar, baseChar],
-      // pickst1: [baseChar, baseChar, baseChar, baseChar, baseChar, baseChar],
-      // pickst2: [baseChar, baseChar, baseChar, baseChar, baseChar, baseChar],
       phase: "Waiting", 
     };
     // creates a game with the default settings
-    return JSON.stringify(await game.create(defaultSettings));
+    const res = await game.create(defaultSettings)
+    return JSON.stringify({
+        message: "Success",
+        type: "create",
+        game: res
+    });
+
 }
 const getGame = async(data) => {
-    return JSON.stringify(await game.findById(data).lean());
+    const res = await game.findById(data).lean();
+    if(res == null){
+        let errVal =
+          development == "development" ? "Game not found" : "An error occurred";
+        return JSON.stringify({
+          message: "Failure",
+          error: errVal,
+        });
+    }
+    else{
+        return JSON.stringify({
+          message: "Success",
+          type: "get",
+          game: res,
+        });
+    }
 }
 const addItems = async (info) => {
     // add information
@@ -106,21 +120,18 @@ const addItems = async (info) => {
         const gameResult = await game.findById(info.id);
         switch (info.changed) {
             case "boss": {
-                let newBosses = [...gameResult.bosses, info.data.boss];
+                let findBoss = await boss.findById(info.data.boss) // id of boss
+                let newBosses = [...gameResult.bosses, findBoss];
                 // verify boss count
                 if (
-                  info.data.boss == null ||
+                  findBoss == null ||
                   !checkAmounts(newBosses, gameResult.division, "boss") ||
-                  (await checkExists(info.id, "bosses", info.data.boss))
+                  (await checkExists(info.id, "bosses", findBoss))
                 ) {
                   //
                   throw new Error(
                     "Please do not enter more than the maximum number of bosses."
                   );
-                }
-                else{
-                    info.data.boss = info.data.boss.charAt(0).toUpperCase() + info.data.boss.substring(1).toLowerCase(); 
-                    // capitalize first letter of boss, make rest lowercase
                 }
                 // add new boss, save. and return a message
                 gameResult.bosses = newBosses;
@@ -182,9 +193,10 @@ const addItems = async (info) => {
     }
     catch(err){
         console.log(err);
+        let errVal =  (development == "development") ? err.toString() : "An error occurred";
         return JSON.stringify({
           message: "Failure",
-          error: err.toString(),
+          error: errVal,
         });
     }
 }
@@ -213,9 +225,11 @@ const addTimes = async (info) => {
   }
   catch(err){
     console.log(err);
+    let errVal =
+      development == "development" ? err.toString() : "An error occurred";
     return JSON.stringify({
-        message: "Failure",
-        error: err
+      message: "Failure",
+      error: errVal,
     });
   }
 }
@@ -249,9 +263,11 @@ const switchPhase = async (ID, phase) => {
     }
     catch(err){
         console.log(err);
+        let errVal =
+          development == "development" ? err.toString() : "An error occurred";
         return JSON.stringify({
           message: "Failure",
-          error: err.toString(),
+          error: errVal,
         });
     }
     
@@ -279,7 +295,6 @@ const checkExists = async (ID, item, value) => {
     let targetGame = await game.findById(ID);
     let check = targetGame.get(item);
     // convert to strings and see if one includes the other
-    // assuming bosses are properly entered each time it should work out
     check = JSON.stringify(check);
     let valueString = JSON.stringify(value);
     if(check.includes(valueString)){

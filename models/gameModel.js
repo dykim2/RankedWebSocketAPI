@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const characterSchema = require('./characterModel').schema;
+const bossSchema = require('./bossModel').schema;
 const gameSchema = mongoose.Schema(
   {
     _id: Number,
@@ -18,8 +19,8 @@ const gameSchema = mongoose.Schema(
       default: [],
     },
     bosses: {
-      type: [String],
-      default: ["Aeonblight Drake"],
+      type: [bossSchema],
+      default: [],
     },
     result: {
       type: String,
@@ -36,6 +37,10 @@ const gameSchema = mongoose.Schema(
     team2: {
       type: String,
       default: "Team 2",
+    },
+    longBoss: {
+      type: [Boolean],
+      default: [false, false],
     },
     timest1: {
       type: [Number],
