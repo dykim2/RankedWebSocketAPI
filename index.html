@@ -37,10 +37,15 @@
         }
         const hello = () => {
             let info = {
-                message: "4332",
-                info: "hello"
+                id: 5,
+                type: "add",
+                changed: "pick",
+                data: {
+                    character: 11,
+                    team: 1
+                }
             }
-            socket.send(JSON.stringify(request));
+            socket.send(JSON.stringify(info));
         }
     </script>
 </html>

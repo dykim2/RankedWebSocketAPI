@@ -22,6 +22,10 @@ const gameSchema = mongoose.Schema(
       type: [bossSchema],
       default: [],
     },
+    draft: {
+      type: Boolean,
+      default: true, // draft or blind game
+    },
     result: {
       type: String,
       default: "waiting", // can be "waiting, setup", "progress", and "finish", or a winning team (1 or 2, in format of a string)

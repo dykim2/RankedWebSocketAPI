@@ -19,7 +19,7 @@ try{
         ws.on('message', async function incoming(message){
             // could send JSON data and sort it
             const jsonStr = JSON.parse(message);
-            if(typeof jsonStr.type === "undefined"){
+            if(typeof jsonStr.type == "undefined"){
                 throw new Error("Please enter a request type.")
             }
             // calling options: 
@@ -136,10 +136,22 @@ const addItems = async (info) => {
                 // add new boss, save. and return a message
                 gameResult.bosses = newBosses;
                 gameResult.save();
+                let newTeam = 0; // switch teams
+                switch (info.data.team) {
+                  case 1:
+                    newTeam = 2;
+                    break;
+                  case 2:
+                    newTeam = 1;
+                    break;
+                  default:
+                    throw new Error("Enter a valid team (1 or 2)");
+                }
                 return JSON.stringify({
                     message: "Success",
                     type: "boss",
                     boss: info.data.boss,
+                    nextTeam: newTeam
                 });
             }
             
@@ -153,10 +165,22 @@ const addItems = async (info) => {
                 // add new bans, save, return message
                 gameResult.bans = newBans;
                 gameResult.save();
+                let newTeam = 0;
+                switch(info.data.team){
+                  case 1: 
+                    newTeam = 2;
+                    break;
+                  case 2:
+                    newTeam = 1;
+                    break;
+                  default:
+                    throw new Error("Enter a valid team (1 or 2)")
+                }
                 return JSON.stringify({
-                    message: "Success",
-                    type: "ban",
-                    ban: info.data.character,
+                  message: "Success",
+                  type: "ban",
+                  ban: info.data.character,
+                  nextTeam: newTeam,
                 });
             }
                 
@@ -168,23 +192,57 @@ const addItems = async (info) => {
                     "Please enter a valid character (use the character syntax)."
                   );
                 }
-                let newPicks = [...gameResult.pickst2, charPick]; // does not matter which team, just any team
                 if (
-                  !checkAmounts(newPicks, gameResult.division, "pick") ||
                   (await checkExists(info.id, "pickst"+info.data.team, charPick))
                 ) {
-                  throw new Error("Please do not enter more than the maximum number of picks for a team.");
+                  throw new Error("Please enter a valid pick for a team.");
                 }
                 // add picks accordingly based on team
-                info.data.team == 1
-                    ? (gameResult.pickst1 = [...gameResult.pickst1, charPick])
-                    : (gameResult.pickst2 = [...gameResult.pickst2, charPick]);
+                const swapt1 = [0,2,3,5];
+                const swapt2 = [1,2,4,5];
+                // find first empty pick
+                let ind = -1;
+                let nextTeam = 0;
+                if(info.data.team == 2){
+                  for (let i = 0; i < gameResult.pickst2.length; i++) {
+                    if (gameResult.pickst2[i]._id == -1) {
+                      ind = i;
+                      gameResult.pickst2[i] = charPick;
+                      break;
+                    }
+                  }
+                  swapt2.forEach((val) => {
+                    if (ind == val) { // found a boundary for team 2 - now it is team 1's turn to pick
+                      nextTeam = 1;
+                    }
+                  });
+                  if (nextTeam == 0) { // not a boundary - team 2 go again
+                    nextTeam = 2;
+                  }
+                }
+                else{
+                  for (let i = 0; i < gameResult.pickst1.length; i++) {
+                    if (gameResult.pickst1[i]._id == -1) {
+                      ind = i;
+                      gameResult.pickst1[i] = charPick;
+                      break;
+                    }
+                  }
+                  swapt1.forEach(val => {
+                    if(ind == val){
+                      nextTeam = 2;
+                    }
+                  })
+                  if(nextTeam == 0){nextTeam = 1;}
+                }
                 gameResult.save();
+                // find the first index at which 
                 return JSON.stringify({
                     message: "Success",
                     type: "pick",
                     team: info.data.team,
                     pick: info.data.character,
+                    nextTeam: nextTeam
                 });
             }
             default:
