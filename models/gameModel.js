@@ -6,11 +6,11 @@ const gameSchema = mongoose.Schema(
     _id: Number,
     playerst1: {
       type: [String],
-      default: ["p11", "p12", "p13", "p14", "p15", "p16"],
+      default: ["p11", "p12", "p13"],
     },
     playerst2: {
       type: [String],
-      default: ["p21", "p22", "p23", "p24", "p25", "p26"],
+      default: ["p21", "p22", "p23"],
     },
     division: {
       type: String,
@@ -44,9 +44,17 @@ const gameSchema = mongoose.Schema(
       type: String,
       default: "Team 2",
     },
+    statust1: {
+      type: [String],
+      default: ["X 000", "X 000", "X 000", "X 000", "X 000", "X 000", "X 000"], // codes: X for nothing, R for retry, F for forced retry, E for referee error, D for deaths (should be 000 - replace the corresponding character when a player dies in a boss)
+    },
+    statust2: {
+      type: [String],
+      default: ["X 000", "X 000", "X 000", "X 000", "X 000", "X 000", "X 000"],
+    },
     turn: {
       type: Number,
-      default: 1 // the turn number 
+      default: 1, // the turn number
     },
     longBoss: {
       type: [Boolean],
@@ -54,11 +62,11 @@ const gameSchema = mongoose.Schema(
     },
     timest1: {
       type: [Number],
-      default: [0, 0, 0, 0, 0, 0, 0],
+      default: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     },
     timest2: {
       type: [Number],
-      default: [0, 0, 0, 0, 0, 0, 0],
+      default: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     },
     pickst1: {
       type: [characterSchema],

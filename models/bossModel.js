@@ -19,6 +19,10 @@ const bossSchema = mongoose.Schema({
     },
     element: {
         type: String
+    },
+    chosen: {
+        type: Boolean,
+        default: false
     }
 }) 
 
