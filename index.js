@@ -66,7 +66,7 @@ try{
             }
             else{ // on a character selection, user switch, pick add, etc, etc. send to every client including the picker
               wss.clients.forEach(function each(client) {
-                // send data back to connected clients
+                // send data back to all connected clients
                 if (client.readyState === WebSocket.OPEN) {
                   // client !== ws &&
                   client.send(result);
@@ -112,7 +112,8 @@ const createGame = async (data) => {
     return JSON.stringify({
         message: "Success",
         type: "create",
-        game: res
+        game: res,
+        id: res._id
     });
 
 }
@@ -132,6 +133,7 @@ const getGame = async(data) => {
           message: "Success",
           type: "get",
           game: res,
+          id: res._id
         });
     }
 }
@@ -200,6 +202,7 @@ const addItems = async (info) => {
                 type: "boss",
                 game: gameResult,
                 boss: info.data.boss,
+                id: info.id,
                 nextTeam: newTeam,
               });
             }
@@ -265,6 +268,7 @@ const addItems = async (info) => {
                   type: "ban",
                   ban: info.data.character,
                   game: gameResult,
+                  id: info.id,
                   nextTeam: newTeam,
                 });
             }
@@ -338,6 +342,7 @@ const addItems = async (info) => {
                     pick: info.data.character,
                     team: info.data.team,
                     game: gameResult,
+                    id: info.id,
                     nextTeam: newTeam
                 });
             }
@@ -350,13 +355,13 @@ const addItems = async (info) => {
         }
     }
     catch(err){
-        console.log(err);
-        let errVal =  (development == "development") ? err.toString() : "An error occurred";
-        return JSON.stringify({
-          message: "Failure",
-          errType: "server",
-          error: errVal,
-        });
+      console.log(err);
+      let errVal =  (development == "development") ? err.toString() : "An error occurred";
+      return JSON.stringify({
+        message: "Failure",
+        errType: "server",
+        error: errVal,
+      });
     }
 }
 const addTimes = async (info) => {
@@ -391,6 +396,7 @@ const addTimes = async (info) => {
       message: "Success",
       type: "time",
       time: info.data,
+      id: info.id,
       game: gameResult
     });
   }
@@ -435,7 +441,8 @@ const switchPhase = async (ID, phase) => {
             message: "Success",
             type: "phase",
             newPhase: phase,
-            game: updated
+            game: updated,
+            id: updated._id
         });
     }
     catch(err){
@@ -455,7 +462,8 @@ const findTurn = async(id) => {
   return JSON.stringify({
     message: "Success",
     type: "turn",
-    turn: foundGame.turn
+    turn: foundGame.turn,
+    id: id
   });
 }
 
@@ -524,6 +532,7 @@ const updateTeam = async(data) => {
     type: "TeamUpdate",
     game: gameInfo,
     team: data.team,
+    id: data.id,
     teamName: data.data.teamName,
     playerNames: data.data.playerNames
   }))
