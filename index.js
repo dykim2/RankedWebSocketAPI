@@ -23,10 +23,9 @@ try{
             // calling options: 
             let result = ""; // should be a JSON string
             switch(jsonStr.type){
-                case "create":{ 
+                case "create":
                     result = await createGame(jsonStr.id);
                     break;
-                }
                 case "get":
                     result = await getGame(jsonStr.id);
                     break;
@@ -40,7 +39,7 @@ try{
                     result = await switchPhase(jsonStr.id, jsonStr.phase);
                     break;
                 case "turn":
-                    result = await findTurn(jsonStr.id);
+                    result = await findTurn(jsonStr.id, jsonStr.getSelectionInfo);
                     break; 
                 case "find":
                     result = await getInformation(jsonStr.query);
@@ -50,6 +49,9 @@ try{
                     break;
                 case "team":
                     result = await updateTeam(jsonStr);
+                    break;
+                case "ids":
+                    result = await findAllIds(id);
                     break;
                 default:
                     result = JSON.stringify({message: "Failure", errType: "Nonexistent", error: "Please enter a valid selection."});
@@ -484,14 +486,35 @@ const switchPhase = async (ID, phase) => {
   }
     
 }
-const findTurn = async(id) => {
+const findTurn = async(id, getSelectionInfo = false) => {
   const foundGame = await game.findById(id).lean();
-  return JSON.stringify({
-    message: "Success",
-    type: "turn",
-    turn: foundGame.turn,
-    id: id
-  });
+  if(foundGame == null){
+    return JSON.stringify({
+      message: "Failure",
+      errType: "Nonexistent",
+      error: "The id is not valid for a current game.",
+    });
+  }
+  else if(getSelectionInfo){
+    let info = JSON.parse(await findAllIds(id))
+    return JSON.stringify({
+      message: "Success",
+      type: "turn",
+      turn: foundGame.turn,
+      bosses: info.bosses,
+      chars: info.chars,
+      id: id
+    });
+  }
+  else{
+    return JSON.stringify({
+      message: "Success",
+      type: "turn",
+      turn: foundGame.turn,
+      id: id
+    });
+  }
+  
 }
 
 const getInformation = async(query) => {
@@ -641,6 +664,46 @@ const updateStatus = async (info) => {
     status: info.data.status
   })
 };
+
+const findAllIds = async(id) => {
+  const gameInfo = await game.findById(id);
+  if(gameInfo == null){
+    return JSON.stringify({
+      message: "Failure",
+      errType: "Nonexistent",
+      error: "The id is not valid for a current game.",
+    });
+  }
+  let bossIds = [];
+  let charIds = [];
+  for(let i = 0; i < gameInfo.bosses; i++){
+    bossIds.push(gameInfo.bosses[i]._id)
+    if(i < gameInfo.bans.length){
+      charIds.push(gameInfo.bans[i]._id);
+    }
+    if(i < gameInfo.pickst1.length){
+      charIds.push(gameInfo.pickst1[i]._id);
+      charIds.push(gameInfo.pickst2[i]._id);
+    }
+  }
+  bossIds = [...new Set(bossIds)];
+  charIds = [...new Set(charIds)];
+  let bossInd = bossIds.indexOf(-1);
+  let charInd = charIds.indexOf(-1);
+  if(bossInd != -1){
+    bossIds.splice(bossInd, 1);
+  }
+  if(charInd != -1){
+    charIds.splice(charInd, 1);
+  }
+  return JSON.stringify({
+    message: "Success",
+    type: "selections",
+    id: id,
+    bosses: bossIds,
+    chars: charIds
+  })
+}
 
 const checkAmounts = (data, division, type) => {
     // checks the number of bans / picks / bosses is valid, not too many - data is the array
