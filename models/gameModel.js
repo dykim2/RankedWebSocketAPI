@@ -44,13 +44,21 @@ const gameSchema = mongoose.Schema(
       type: String,
       default: "Team 2",
     },
-    statust1: {
-      type: [String],
-      default: ["X 000", "X 000", "X 000", "X 000", "X 000", "X 000", "X 000"], // codes: X for nothing, R for retry, F for forced retry, E for referee error, D for deaths (should be 000 - replace the corresponding character when a player dies in a boss)
+    penaltyt1: {
+      type: Object,
+      required: true,
     },
-    statust2: {
-      type: [String],
-      default: ["X 000", "X 000", "X 000", "X 000", "X 000", "X 000", "X 000"],
+    penaltyt2: {
+      type: Object,
+      required: true,
+    },
+    deatht1: {
+      type: Object,
+      required: true,
+    },
+    deatht2: {
+      type: Object,
+      required: true,
     },
     turn: {
       type: Number,

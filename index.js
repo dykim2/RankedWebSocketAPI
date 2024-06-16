@@ -11,7 +11,7 @@ const development = process.env.NODE_ENV;
 const mongoose = require("mongoose");
 const game = require("./models/gameModel.js");
 const character = require("./models/characterModel.js")
-const boss = require("./models/bossModel.js")
+const boss = require("./models/bossModel.js");
 
 try{
     wss.on('connection', function connection(ws) {
@@ -19,11 +19,11 @@ try{
         ws.on('message', async function incoming(message){
             // could send JSON data and sort it
             const jsonStr = JSON.parse(message);
-            console.log(jsonStr);
+            // console.log(jsonStr);
             // calling options: 
             let result = ""; // should be a JSON string
             switch(jsonStr.type){
-                case "create":{
+                case "create":{ 
                     result = await createGame(jsonStr.id);
                     break;
                 }
@@ -96,25 +96,37 @@ mongoose
 
 const createGame = async (data) => {
     // create the game information
-    const defaultSettings = {
-      _id: data,
-      playerst1: ["player1", "player2", "player3"],
-      playerst2: ["player4", "player5", "player6"],
-      division: "Advanced",
-      result: "setup",
-      connected: [0, 0, 0],
-      timest1: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-      timest2: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-      phase: "Waiting",
-    };
-    // creates a game with the default settings
-    const res = await game.create(defaultSettings)
-    return JSON.stringify({
-        message: "Success",
-        type: "create",
-        game: res,
-        id: res._id
-    });
+  const defaultSettings = {
+    _id: data,
+    playerst1: ["player1", "player2", "player3"],
+    playerst2: ["player4", "player5", "player6"],
+    division: "Advanced",
+    result: "setup",
+    connected: [0, 0, 0],
+    timest1: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    timest2: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    phase: "Waiting",
+    penaltyt1: {},
+    penaltyt2: {},
+    deatht1: {},
+    deatht2: {}
+  };
+  
+  Object.assign(
+    defaultSettings.penaltyt1,
+    Array(7).fill(Array(6).fill(false))
+  ); // 6 is arbitrary (number of penalties), 3 is number of players, 7 is default number of bosses
+  Object.assign(defaultSettings.penaltyt2, Array(7).fill(Array(6).fill(false)));
+  Object.assign(defaultSettings.deatht1, Array(7).fill(Array(3).fill(false)));
+  Object.assign(defaultSettings.deatht2, Array(7).fill(Array(3).fill(false))); 
+  // creates a game with the default settings
+  const res = await game.create(defaultSettings)
+  return JSON.stringify({
+      message: "Success",
+      type: "create",
+      game: res,
+      id: res._id
+  });
 
 }
 const getGame = async(data) => {
@@ -195,7 +207,7 @@ const addItems = async (info) => {
                 newTeam = -1;
               }
               // add new boss, save. and return a message
-              gameResult.turn = newTeam;
+              newTeam < 0 ? gameResult.turn = -1 * newTeam : gameResult.turn = newTeam;
               await gameResult.save();
               return JSON.stringify({
                 message: "Success",
@@ -208,150 +220,150 @@ const addItems = async (info) => {
             }
             
             case "ban": {
-                // get character by index from character model and add it to the bans
-                const charPick = await character.findById(info.data.character);
-                let status = await checkCharacterExists(info.id, charPick);
-                if (charPick == null || status){
+              // get character by index from character model and add it to the bans
+              const charPick = await character.findById(info.data.character);
+              let status = await checkCharacterExists(info.id, charPick);
+              if (charPick == null || status){
+                return JSON.stringify({
+                  message: "Failure",
+                  errType: "Invalid",
+                  error: "Please provide a valid character id to ban."
+                })
+              }
+              let last = 0;
+              for(let i = 0; i < gameResult.bans.length; i++){
+                if(gameResult.bans[i]._id == -1){
+                  charPick.chosen = true;
+                  gameResult.bans[i] = charPick;
+                  if (i == gameResult.bans.length - 1) { // swaps to picks on 4th and 6th ban - this is 6th ban
+                    last = 1;
+                  }
+                  else if(i == gameResult.bans.length - 3){ // 4th ban
+                    last = 2;
+                  }
+                  break;
+                }
+              }
+              // add new bans, save, return message
+              let newTeam = 0;
+              switch(info.data.team){
+                case 1: 
+                  newTeam = 2;
+                  break;
+                case 2:
+                  newTeam = 1;
+                  break;
+                default:
                   return JSON.stringify({
                     message: "Failure",
-                    errType: "Invalid",
-                    error: "Please provide a valid character id to ban."
-                  })
-                }
-                let last = 0;
-                for(let i = 0; i < gameResult.bans.length; i++){
-                  if(gameResult.bans[i]._id == -1){
-                    charPick.chosen = true;
-                    gameResult.bans[i] = charPick;
-                    if (i == gameResult.bans.length - 1) { // swaps to picks on 4th and 6th ban - this is 6th ban
-                      last = 1;
-                    }
-                    else if(i == gameResult.bans.length - 3){ // 4th ban
-                      last = 2;
-                    }
-                    break;
-                  }
-                }
-                // add new bans, save, return message
-                let newTeam = 0;
-                switch(info.data.team){
-                  case 1: 
-                    newTeam = 2;
-                    break;
-                  case 2:
-                    newTeam = 1;
-                    break;
-                  default:
-                    return JSON.stringify({
-                      message: "Failure",
-                      errType: "Nonexistent",
-                      error: "Please provide a valid team to select.",
-                    });
-                }
-                if (last != 0) {
-                  newTeam = -1 * last;
-                }
-                switch(newTeam){
-                  case -1:
-                    gameResult.turn = 2;
-                    break;
-                  case -2:
-                    gameResult.turn = 1;
-                    break;
-                  default:
-                    gameResult.turn = newTeam;
-                    break;
-                }
-                await gameResult.save();
-                return JSON.stringify({
-                  message: "Success",
-                  type: "ban",
-                  ban: info.data.character,
-                  game: gameResult,
-                  id: info.id,
-                  nextTeam: newTeam,
-                });
+                    errType: "Nonexistent",
+                    error: "Please provide a valid team to select.",
+                  });
+              }
+              if (last != 0) {
+                newTeam = -1 * last;
+              }
+              switch(newTeam){
+                case -1:
+                  gameResult.turn = 2;
+                  break;
+                case -2:
+                  gameResult.turn = 1;
+                  break;
+                default:
+                  gameResult.turn = newTeam;
+                  break;
+              }
+              await gameResult.save();
+              return JSON.stringify({
+                message: "Success",
+                type: "ban",
+                ban: info.data.character,
+                game: gameResult,
+                id: info.id,
+                nextTeam: newTeam,
+              });
             }
                 
             case "pick": {
-                // get character by index from character model and add it to the picks
-                const charPick = await character.findById(info.data.character);
-                if (charPick == null || await checkCharacterExists(info.id, charPick)) {
-                  return JSON.stringify({
-                    message: "Failure",
-                    errType: "Invalid",
-                    error: "Please provide a valid character id to pick.",
-                  });
-                }
-                // add picks accordingly based on team
-                const swapt1 = [0,2,4,5];
-                const swapt2 = [1,2,3,5];
-                // find first empty pick
-                let ind = -1;
-                let newTeam = 0;
-                if(info.data.team == 2){
-                  for (let i = 0; i < gameResult.pickst2.length; i++) {
-                    if (gameResult.pickst2[i]._id == -1) {
-                      ind = i;
-                      charPick.chosen = true;
-                      gameResult.pickst2[i] = charPick;
-                      break;
-                    }
-                  }
-                  for(let i = 0; i < swapt2.length; i++) {
-                    if (ind == swapt2[i]) { // found a boundary for team 2 - now it is team 1's turn to pick
-                      if(i == 1){
-                        // bandage solution - third pick goes back to one more set of bans, where team 2 starts
-                        newTeam = -2;
-                      }
-                      else{
-                        newTeam = 1;
-                      }
-                      break;
-                    }
-                  };
-                  if (newTeam == 0) { // not a boundary - team 2 go again
-                    newTeam = 2;
-                  }
-                }
-                else{
-                  for (let i = 0; i < gameResult.pickst1.length; i++) {
-                    if (gameResult.pickst1[i]._id == -1) {
-                      ind = i;
-                      charPick.chosen = true;
-                      gameResult.pickst1[i] = charPick;
-                      break;
-                    }
-                  }
-                  swapt1.forEach(val => {
-                    if(ind == val){
-                      newTeam = 2;
-                    }
-                  })
-                  if(newTeam == 0){newTeam = 1;}
-                }
-                if(ind == swapt1[swapt1.length - 1] && info.data.team == 1){ // first team has very last pick
-                  newTeam = -1;
-                }
-                newTeam < 0 ? gameResult.turn = -1 * newTeam : gameResult.turn = 1 * newTeam;
-                await gameResult.save();
-                // find the first index at which 
-                return JSON.stringify({
-                    message: "Success",
-                    type: "pick",
-                    pick: info.data.character,
-                    team: info.data.team,
-                    game: gameResult,
-                    id: info.id,
-                    nextTeam: newTeam
-                });
-            }
-            default:
+            // get character by index from character model and add it to the picks
+            const charPick = await character.findById(info.data.character);
+            if (charPick == null || await checkCharacterExists(info.id, charPick)) {
               return JSON.stringify({
                 message: "Failure",
-                errType: "Add",
-                error: "Please choose to add a boss, ban, or pick only.",
+                errType: "Invalid",
+                error: "Please provide a valid character id to pick.",
               });
+            }
+            // add picks accordingly based on team
+            const swapt1 = [0,2,4,5];
+            const swapt2 = [1,2,3,5];
+            // find first empty pick
+            let ind = -1;
+            let newTeam = 0;
+            if(info.data.team == 2){
+              for (let i = 0; i < gameResult.pickst2.length; i++) {
+                if (gameResult.pickst2[i]._id == -1) {
+                  ind = i;
+                  charPick.chosen = true;
+                  gameResult.pickst2[i] = charPick;
+                  break;
+                }
+              }
+              for(let i = 0; i < swapt2.length; i++) {
+                if (ind == swapt2[i]) { // found a boundary for team 2 - now it is team 1's turn to pick
+                  if(i == 1){
+                    // bandage solution - third pick goes back to one more set of bans, where team 2 starts
+                    newTeam = -2;
+                  }
+                  else{
+                    newTeam = 1;
+                  }
+                  break;
+                }
+              };
+              if (newTeam == 0) { // not a boundary - team 2 go again
+                newTeam = 2;
+              }
+            }
+            else{
+              for (let i = 0; i < gameResult.pickst1.length; i++) {
+                if (gameResult.pickst1[i]._id == -1) {
+                  ind = i;
+                  charPick.chosen = true;
+                  gameResult.pickst1[i] = charPick;
+                  break;
+                }
+              }
+              swapt1.forEach(val => {
+                if(ind == val){
+                  newTeam = 2;
+                }
+              })
+              if(newTeam == 0){newTeam = 1;}
+            }
+            if(ind == swapt1[swapt1.length - 1] && info.data.team == 1){ // first team has very last pick
+              newTeam = -1;
+            }
+            newTeam < 0 ? gameResult.turn = -1 * newTeam : gameResult.turn = 1 * newTeam;
+            await gameResult.save();
+            // find the first index at which 
+            return JSON.stringify({
+              message: "Success",
+              type: "pick",
+              pick: info.data.character,
+              team: info.data.team,
+              game: gameResult,
+              id: info.id,
+              nextTeam: newTeam
+            });
+          }
+          default:
+            return JSON.stringify({
+              message: "Failure",
+              errType: "Add",
+              error: "Please choose to add a boss, ban, or pick only.",
+            });
         }
     }
     catch(err){
@@ -376,7 +388,7 @@ const addTimes = async (info) => {
         error: "Please provide a valid set of time information."
       });
     }
-    if(typeof timeInfo[2] != Number || isNaN(timeInfo[2])){
+    if(typeof timeInfo[2] != "number" || isNaN(timeInfo[2])){
       return JSON.stringify({
         message: "Failure",
         errType: "Time",
@@ -386,15 +398,23 @@ const addTimes = async (info) => {
     // verify the team number and boss number are valid
     // find game and get times of both teams
     const gameResult = await game.findById(info.id);
+    if (gameResult == null) {
+      return JSON.stringify({
+        message: "Failure",
+        errType: "Nonexistent",
+        error: "The id is not valid for a current game.",
+      });
+    }
     let currentTimes = [gameResult.timest1, gameResult.timest2];
     
     // change the time
     currentTimes[timeInfo[0] - 1][timeInfo[1]] = timeInfo[2];
     // save
     await gameResult.save();
+    // sends back the same time array
     return JSON.stringify({
       message: "Success",
-      type: "time",
+      type: "times",
       time: info.data,
       id: info.id,
       game: gameResult
@@ -414,47 +434,54 @@ const addTimes = async (info) => {
 const switchPhase = async (ID, phase) => { 
     // change state - drafting (setup), playing (progress), game over (finish)
     // send this info back to everyone
-    try{
-        phase = phase.toLowerCase();
-        let cond = false;
-        const keywords = ["setup","progress","finish","1","2"]
-        keywords.forEach(word => {
-          if(word === phase){
-              cond = true;
-              if(phase == "1"){
-                  phase = "Team 1 Wins"
-              }
-              else if(phase == "2"){
-                  phase = "Team 2 Wins"
-              }
-          }
-        })
-        if(!cond){
-            return JSON.stringify({
-              message: "Failure",
-              errType: "Phase",
-              error: "Please provide a valid phase.",
-            });
+  try{
+      phase = phase.toLowerCase();
+      let cond = false;
+      const keywords = ["setup","progress","finish","1","2"]
+      keywords.forEach(word => {
+        if(word === phase){
+            cond = true;
+            if(phase == "1"){
+                phase = "Team 1 Wins"
+            }
+            else if(phase == "2"){
+                phase = "Team 2 Wins"
+            }
         }
-        let updated = await game.findByIdAndUpdate(ID, {result: ""+phase}).lean(); // lean since info not needed
-        return JSON.stringify({
-            message: "Success",
-            type: "phase",
-            newPhase: phase,
-            game: updated,
-            id: updated._id
-        });
-    }
-    catch(err){
-        console.log(err);
-        let errVal =
-          development == "development" ? err.toString() : "An error occurred";
+      })
+      if(!cond){
+          return JSON.stringify({
+            message: "Failure",
+            errType: "Phase",
+            error: "Please provide a valid phase.",
+          });
+      }
+      let updated = await game.findByIdAndUpdate(ID, {result: ""+phase}).lean(); // lean since info not needed
+      if (updated == null) {
         return JSON.stringify({
           message: "Failure",
-          errType: "server",
-          error: errVal,
+          errType: "Nonexistent",
+          error: "The id is not valid for a current game.",
         });
-    }
+      }
+      return JSON.stringify({
+        message: "Success",
+        type: "phase",
+        newPhase: phase,
+        game: updated,
+        id: updated._id
+      });
+  }
+  catch(err){
+    console.log(err);
+    let errVal =
+      development == "development" ? err.toString() : "An error occurred";
+    return JSON.stringify({
+      message: "Failure",
+      errType: "server",
+      error: errVal,
+    });
+  }
     
 }
 const findTurn = async(id) => {
@@ -490,57 +517,130 @@ const getInformation = async(query) => {
 }
 /**
  * Sends the new team information to the database. Updates pick orders as well.
- * @param {*} data the json string parsed as data
+ * @param {*} info the json string parsed as data
  * This data includes player and team names, and pick orders.
  * team is either 1 or 2 always.
  */
-const updateTeam = async(data) => {
-  const gameInfo = await game.findById(data.id);
-  if((new Set(data.data.order)).size != data.data.order.length){
+const updateTeam = async(info) => {
+  const gameInfo = await game.findById(info.id);
+  if (gameInfo == null) {
+    return JSON.stringify({
+      message: "Failure",
+      errType: "Nonexistent",
+      error: "The id is not valid for a current game.",
+    });
+  }
+  if (new Set(info.data.order).size != info.data.order.length) {
     return JSON.stringify({
       message: "Failure",
       errType: "Team",
-      error: "Please make sure each player has two characters."
-    })
+      error: "Please make sure each player has two characters.",
+    });
   }
   let picksInfo = [gameInfo.pickst1, gameInfo.pickst2];
   let newPicks = [];
   for(let i = 0; i < gameInfo.pickst1.length; i++){
-    newPicks.push(picksInfo[data.team - 1][data.data.order[i]]); // copy data from old array and move to new
+    newPicks.push(picksInfo[info.team - 1][info.data.order[i]]); // copy data from old array and move to new
   }
-  switch(data.team){
+  switch (info.team) {
     case 1:
       gameInfo.pickst1 = newPicks;
-      gameInfo.team1 = data.data.teamName;
-      gameInfo.playerst1 = data.data.playerNames;
+      gameInfo.team1 = info.data.teamName;
+      gameInfo.playerst1 = info.data.playerNames;
       break;
     case 2:
       gameInfo.pickst2 = newPicks;
-      gameInfo.team2 = data.data.teamName;
-      gameInfo.playerst2 = data.data.playerNames;
+      gameInfo.team2 = info.data.teamName;
+      gameInfo.playerst2 = info.data.playerNames;
       break;
     default:
       return JSON.stringify({
         message: "Failure",
         errType: "Nonexistent",
-        error: "Please make sure to select a valid team number!"
-      })
+        error: "Please make sure to select a valid team number!",
+      });
   }
   await gameInfo.save();
-  return(JSON.stringify({
+  return JSON.stringify({
     message: "Success",
     type: "TeamUpdate",
     game: gameInfo,
-    team: data.team,
-    id: data.id,
-    teamName: data.data.teamName,
-    playerNames: data.data.playerNames
-  }))
+    team: info.team,
+    id: info.id,
+    teamName: info.data.teamName,
+    playerNames: info.data.playerNames,
+  });
 }
 
-const updateStatus = async(data) => {
-  const gameInfo = await game.findById(data.id);
-}
+const updateStatus = async (info) => {
+  const gameInfo = await game.findById(info.id);
+  // console.log(gameInfo);
+  let failed = false;
+  if(gameInfo == null){
+    return JSON.stringify({
+      message: "Failure",
+      errType: "Nonexistent",
+      error: "The id is not valid for a current game."
+    })
+  }
+  switch(info.team){
+    case 1:
+      switch(info.menu.toLowerCase()){
+        case "penalty": {
+          gameInfo.penaltyt1[info.data.bossIndex] = info.data.status;
+          gameInfo.markModified('penaltyt1');
+          break;
+        }
+        case "death": {
+          gameInfo.deatht1[info.data.bossIndex] = info.data.status;
+          gameInfo.markModified('deatht1');
+          break;
+        }
+        default:
+          failed = true;
+          break;
+      }
+      break;
+    case 2:
+      switch (info.menu.toLowerCase()) {
+        case "penalty": {
+          gameInfo.penaltyt2[info.data.bossIndex] = info.data.status;
+          gameInfo.markModified("penaltyt2");
+          break;
+        }
+        case "death": {
+          gameInfo.deatht2[info.data.bossIndex] = info.data.status;
+          gameInfo.markModified("deatht2");
+          break;
+        }
+        default:
+          failed = true;
+          break;
+      }
+      break;
+    default:
+      failed = true;
+      break;
+  }
+  console.log(gameInfo.penaltyt1[0]);
+  if(failed){
+    return JSON.stringify({
+      message: "Failure",
+      errType: "status",
+      error: "Please ensure all necessary status info is posted."
+    })
+  }
+  await gameInfo.save();
+  return JSON.stringify({
+    message: "Success",
+    type: "status",
+    menu: info.menu,
+    team: info.team,
+    id: info.id,
+    bossIndex: info.data.bossIndex,
+    status: info.data.status
+  })
+};
 
 const checkAmounts = (data, division, type) => {
     // checks the number of bans / picks / bosses is valid, not too many - data is the array

@@ -37,12 +37,13 @@
         }
         const hello = () => {
             let info = {
-                id: 5,
-                type: "add",
-                changed: "pick",
+                id: 139,
+                type: "TeamUpdate",
+                menu: "death",
+                team: 1,
                 data: {
-                    character: 11,
-                    team: 1
+                    bossIndex: 1,
+                    status: [false, true, false]
                 }
             }
             let next_info = {
@@ -54,7 +55,7 @@
                     team: 2
                 }
             }
-            socket.send(JSON.stringify(next_info));
+            socket.send(JSON.stringify(info));
         }
     </script>
 </html>
