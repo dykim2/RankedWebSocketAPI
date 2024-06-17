@@ -84,6 +84,10 @@ const gameSchema = mongoose.Schema(
       type: [characterSchema],
       default: [],
     },
+    pickorder: {
+      type: [characterSchema],
+      default: [],
+    }
   },
   {
     timestamps: true,

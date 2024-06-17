@@ -207,6 +207,7 @@ const addItems = async (info) => {
               }
               if (last) {
                 newTeam = -1;
+                gameResult.result = "ban";
               }
               // add new boss, save. and return a message
               newTeam < 0 ? gameResult.turn = -1 * newTeam : gameResult.turn = newTeam;
@@ -268,9 +269,11 @@ const addItems = async (info) => {
               switch(newTeam){
                 case -1:
                   gameResult.turn = 2;
+                  gameResult.result = "pick";
                   break;
                 case -2:
                   gameResult.turn = 1;
+                  gameResult.result = "pick";
                   break;
                 default:
                   gameResult.turn = newTeam;
@@ -317,6 +320,7 @@ const addItems = async (info) => {
                   if(i == 1){
                     // bandage solution - third pick goes back to one more set of bans, where team 2 starts
                     newTeam = -2;
+                    gameResult.result = "ban";
                   }
                   else{
                     newTeam = 1;
@@ -439,7 +443,7 @@ const switchPhase = async (ID, phase) => {
   try{
       phase = phase.toLowerCase();
       let cond = false;
-      const keywords = ["setup","progress","finish","1","2"]
+      const keywords = ["setup","boss", "ban", "pick", "progress","finish","1","2"]
       keywords.forEach(word => {
         if(word === phase){
             cond = true;
@@ -560,29 +564,22 @@ const updateTeam = async(info) => {
       error: "Please make sure each player has two characters.",
     });
   }
-  let picksInfo = [gameInfo.pickst1, gameInfo.pickst2];
   let newPicks = [];
-  for(let i = 0; i < gameInfo.pickst1.length; i++){
-    newPicks.push(picksInfo[info.team - 1][info.data.order[i]]); // copy data from old array and move to new
+  if (info.team != 1 && info.team != 2) {
+    return JSON.stringify({
+      message: "Failure",
+      errType: "Nonexistent",
+      error: "Please make sure to select a valid team number!",
+    });
   }
-  switch (info.team) {
-    case 1:
-      gameInfo.pickst1 = newPicks;
-      gameInfo.team1 = info.data.teamName;
-      gameInfo.playerst1 = info.data.playerNames;
-      break;
-    case 2:
-      gameInfo.pickst2 = newPicks;
-      gameInfo.team2 = info.data.teamName;
-      gameInfo.playerst2 = info.data.playerNames;
-      break;
-    default:
-      return JSON.stringify({
-        message: "Failure",
-        errType: "Nonexistent",
-        error: "Please make sure to select a valid team number!",
-      });
+  if(gameInfo.result.toLowerCase() == "progress" && new Set(info.data.order).size == info.data.order.length){
+    for (let i = 0; i < gameInfo.pickst1.length; i++) {
+      newPicks.push(gameInfo[`pickst${info.team}`][info.data.order[i]]); // copy data from old array and move to new
+    }
+    gameInfo[`pickst${info.team}`] = newPicks;
   }
+  gameInfo[`team${info.team}`] = info.data.teamName;
+  gameInfo[`playerst${info.team}`] = info.data.playerNames;
   await gameInfo.save();
   return JSON.stringify({
     message: "Success",
@@ -591,6 +588,7 @@ const updateTeam = async(info) => {
     team: info.team,
     id: info.id,
     teamName: info.data.teamName,
+    order: newPicks,
     playerNames: info.data.playerNames,
   });
 }
