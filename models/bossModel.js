@@ -20,6 +20,10 @@ const bossSchema = mongoose.Schema({
     element: {
         type: String
     },
+    region: {
+        type: String,
+        required: true
+    },
     chosen: {
         type: Boolean,
         default: false

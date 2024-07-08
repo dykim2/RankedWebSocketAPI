@@ -47,15 +47,16 @@
                 }
             }
             let next_info = {
-                id: 179,
+                id: 266,
                 type: "add",
-                changed: "ban",
+                changed: "boss",
                 data: {
-                    character: 16,
-                    team: 2
+                    character: -3,
+                    boss: 32,
+                    team: 1
                 }
             }
-            socket.send(JSON.stringify(info));
+            socket.send(JSON.stringify(next_info));
         }
     </script>
 </html>

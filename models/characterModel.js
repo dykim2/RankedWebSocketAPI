@@ -13,6 +13,18 @@ const characterSchema = mongoose.Schema({
     type: String,
     required: true
   },
+  rarity: {
+    type: Number,
+    default: 4
+  },
+  weapon: {
+    type: String,
+    required: true
+  },
+  region: {
+    type: String,
+    required: true
+  },
   icon: {
     type: String
   },

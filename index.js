@@ -19,7 +19,8 @@ try{
         ws.on('message', async function incoming(message){
             // could send JSON data and sort it
             const jsonStr = JSON.parse(message);
-            // console.log(jsonStr);
+            // 
+            console.log(jsonStr);
             // calling options: 
             let result = ""; // should be a JSON string
             switch(jsonStr.type){
@@ -112,14 +113,15 @@ const createGame = async (data) => {
     deatht1: {},
     deatht2: {}
   };
-  
-  Object.assign(
-    defaultSettings.penaltyt1,
-    Array(7).fill(Array(6).fill(false))
-  ); // 6 is arbitrary (number of penalties), 3 is number of players, 7 is default number of bosses
-  Object.assign(defaultSettings.penaltyt2, Array(7).fill(Array(6).fill(false)));
-  Object.assign(defaultSettings.deatht1, Array(7).fill(Array(3).fill(false)));
-  Object.assign(defaultSettings.deatht2, Array(7).fill(Array(3).fill(false))); 
+  let length = 7;
+  if(data.mode == "premier"){
+    length = 9;
+  }
+  Object.assign(defaultSettings.penaltyt1, Array(length).fill(Array(6).fill(false)));
+  // 6 is arbitrary (number of penalties), 3 is number of players, 7 is default number of bosses
+  Object.assign(defaultSettings.penaltyt2, Array(length).fill(Array(6).fill(false)));
+  Object.assign(defaultSettings.deatht1, Array(length).fill(Array(3).fill(false)));
+  Object.assign(defaultSettings.deatht2, Array(length).fill(Array(3).fill(false))); 
   // creates a game with the default settings
   const res = await game.create(defaultSettings)
   return JSON.stringify({
@@ -164,15 +166,44 @@ const addItems = async (info) => {
             type: "tinker",
             error: "Team on user end and team on server end don't align. Are you tampering with the data?"
           })
+          // info.data.team = gameResult.turn;
         }
         // console.log(gameResult);
         switch (info.changed) {
           case "boss": {
+            if(info.data.boss == -3){
+              // choose a random boss
+              // first find all bosses chosen
+              let bossIds = [];
+              for(let i = 0; i < gameResult.bosses.length; i++){
+                bossIds.push(gameResult.bosses[i]._id);
+              } 
+              let newestBoss = await boss.findOne().sort({ _id: -1 });
+              newestBoss = newestBoss._id;
+              // find last id
+
+              // generate random number
+              let randomVal = -1; 
+              let valid = true;
+              while(randomVal < 0 || bossIds.includes(randomVal) || !valid){
+                randomVal = Math.floor(Math.random() * (newestBoss + 1));
+                let newInfo = await boss.findById(randomVal);
+                if((newInfo.type == "legend" && gameResult.division != "premier") || (newInfo.type == "weekly" && gameResult.division == "open")){
+                  valid = false;
+                }
+                else if (gameResult.longBoss[info.data.team - 1] && newInfo.long) {
+                  valid = false;
+                } else {
+                  valid = true;
+                }
+              }
+              info.data.boss = randomVal;
+            }
             let findBoss = await boss.findById(info.data.boss); // id of boss
             let last = false; // verify boss count
             if (
               findBoss == null ||
-              (await checkExists(info.id, info.data.boss))
+              (await checkExists(info.id, info.data, info.data.team))
             ) {
               //
               return JSON.stringify({
@@ -187,6 +218,10 @@ const addItems = async (info) => {
                 gameResult.bosses[i] = findBoss;
                 if (i == gameResult.bosses.length - 1) {
                   last = true;
+                }
+                if(findBoss.long){
+                  gameResult.longBoss[info.data.team - 1] = true;
+                  console.log("long boss")
                 }
                 break;
               }
@@ -225,9 +260,12 @@ const addItems = async (info) => {
           
           case "ban": {
             // get character by index from character model and add it to the bans
+            if (info.data.character == -3) {
+              info.data.character = -2; // random ban means no ban 
+            }
             const charPick = await character.findById(info.data.character);
             let status = await checkCharacterExists(info.id, charPick);
-            if (charPick == null || status){
+            if (charPick == null || (status && info.data.character != -2 && info.data.character != -1)){
               return JSON.stringify({
                 message: "Failure",
                 errType: "Invalid",
@@ -293,6 +331,27 @@ const addItems = async (info) => {
                 
           case "pick": {
             // get character by index from character model and add it to the picks
+            if (info.data.character == -3) {
+              // choose a random pick
+              // first find all picks and bans chosen
+              let infoIds = [];
+              for (let i = 0; i < gameResult.bans.length; i++) {
+                infoIds.push(gameResult.bans[i]._id);
+                infoIds.push(gameResult.pickst1[i]._id);
+                infoIds.push(gameResult.pickst2[i]._id);
+              }
+              infoIds = [...new Set(infoIds)];
+              let newestPick = await character.findOne().sort({ _id: -1 });
+              newestPick = newestPick._id;
+              // find last id
+
+              // generate random number
+              let randomVal = -1;
+              while (randomVal < 0 || infoIds.includes(randomVal)) {
+                randomVal = Math.floor(Math.random() * (newestPick + 1));
+              }
+              info.data.character = randomVal;
+            }
             const charPick = await character.findById(info.data.character);
             if (charPick == null || await checkCharacterExists(info.id, charPick)) {
               return JSON.stringify({
@@ -444,16 +503,16 @@ const switchPhase = async (ID, phase) => {
   try{
       phase = phase.toLowerCase();
       let cond = false;
-      const keywords = ["setup","boss", "ban", "pick", "progress","finish","1","2"]
+      const keywords = ["waiting","setup","boss", "ban", "pick", "progress","finish","1","2"]
       keywords.forEach(word => {
         if(word === phase){
-            cond = true;
-            if(phase == "1"){
-                phase = "Team 1 Wins"
-            }
-            else if(phase == "2"){
-                phase = "Team 2 Wins"
-            }
+          cond = true;
+          if(phase == "1"){
+            phase = "Team 1 Wins"
+          }
+          else if(phase == "2"){
+            phase = "Team 2 Wins"
+          }
         }
       })
       if(!cond){
@@ -501,14 +560,14 @@ const findTurn = async(id, getSelectionInfo = false) => {
     });
   }
   else if(getSelectionInfo){
-    let info = JSON.parse(await findAllIds(id))
     return JSON.stringify({
       message: "Success",
       type: "turn",
       turn: foundGame.turn,
       bosses: foundGame.bosses,
       chars: [...foundGame.bans, ...foundGame.pickst1, ...foundGame.pickst2],
-      id: id
+      id: id,
+      requesterOnly: true
     });
   }
   else{
@@ -731,7 +790,7 @@ const checkAmounts = (data, division, type) => {
  * @param {Object} value the boss you are checking
  * @returns true if the character is found, false if not
  */
-const checkExists = async (ID, value) => {
+const checkExists = async (ID, value, team) => {
   if(value == null){
     return true; // not because it exists, but instead because it should throw an error
   }
@@ -740,6 +799,12 @@ const checkExists = async (ID, value) => {
   let check = targetGame.get("bosses");
   // convert to strings and see if one includes the other
   check = JSON.stringify(check);
+  console.log("e");
+  console.log(check);
+  if(check.includes('"long":true') && targetGame.longBoss[team - 1]){
+    console.log("long found")
+    return true; // prevent a second long boss from being chosen
+  }
   let valueString = JSON.stringify({
     _id: value._id,
     boss: value.boss,
