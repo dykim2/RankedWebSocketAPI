@@ -799,9 +799,9 @@ const checkExists = async (ID, value, team) => {
   let check = targetGame.get("bosses");
   // convert to strings and see if one includes the other
   check = JSON.stringify(check);
-  console.log("e");
-  console.log(check);
-  if(check.includes('"long":true') && targetGame.longBoss[team - 1]){
+  // console.log("e");
+  // console.log(check);
+  if(check.includes('"long":true') && targetGame.longBoss[team - 1] && value.long){ // checks current bosses and long boss, but does not check if the boss is actually long
     console.log("long found")
     return true; // prevent a second long boss from being chosen
   }
