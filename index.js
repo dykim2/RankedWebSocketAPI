@@ -636,16 +636,20 @@ const updateTeam = async(info) => {
     });
   }
   if(gameInfo.result.toLowerCase() == "progress" && new Set(info.data.order).size == info.data.order.length){
+    let picksList = [];
     for (let i = 0; i < gameInfo.pickst1.length; i++) {
-      newPicks.push(gameInfo[`pickst${info.team}`][info.data.order[i]]); // copy data from old array and move to new
+      picksList.push(gameInfo[`pickst${info.team}`][info.data.order[i]]); // copy data from old array and move to new
+      newPicks.push(info.data.order[i])
+      console.log(newPicks);
     }
-    gameInfo[`pickst${info.team}`] = newPicks;
+    gameInfo[`pickst${info.team}`] = picksList;
   }
   else{
     newPicks = [0, 1, 2, 3, 4, 5]; // fix order
   }
   gameInfo[`team${info.team}`] = info.data.teamName;
   gameInfo[`playerst${info.team}`] = info.data.playerNames;
+  
   await gameInfo.save();
   return JSON.stringify({
     message: "Success",
