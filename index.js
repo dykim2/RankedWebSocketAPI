@@ -30,6 +30,12 @@ try{
                 case "get":
                     result = await getGame(jsonStr.id);
                     break;
+                case "character":
+                    result = await addCharacter(jsonStr);
+                    break;
+                case "boss": 
+                    result = await addBoss(jsonStr);
+                    break;
                 case "add":
                     result = await addItems(jsonStr);
                     break;
@@ -442,6 +448,38 @@ const addItems = async (info) => {
       });
     }
 }
+
+const addCharacter = async(info) => {
+  // check for phase
+  // set information accordingly
+  // call addItems with said information
+ 
+  const newInfo = await game.findById(info.id);
+  const jsonStr = JSON.stringify({
+    id: info.id,
+    type: "add",
+    changed: newInfo.result,
+    data: {
+      character: info.charId,
+      team: info.team
+    }
+  })
+  return addItems(jsonStr);
+}
+
+const addBoss = async(info) => {
+  const jsonStr = JSON.stringify({
+    id: info.id,
+    type: "add",
+    changed: "boss",
+    data: {
+      boss: info.bossId,
+      team: info.team
+    }
+  })
+  return addItems(jsonStr);
+}
+
 const addTimes = async (info) => {
   // update the current times
   // info.data is in format of a three digit array: [team (1 or 2), boss number (0 to 6 or 8 depends on division), new time]

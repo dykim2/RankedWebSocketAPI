@@ -41,8 +41,8 @@ Some more examples of `add` requests:
         "type": "add",
         "changed": "boss",
         "data": {
-            "boss": "Terrorshroom"
-        } // add the "terrorshroom" boss to the boss list
+            "boss": 19
+        } // add the "terrorshroom" boss to the boss list (boss with ID 19)
     },
     {
         "id": 178,
@@ -50,7 +50,7 @@ Some more examples of `add` requests:
         "changed": "ban",
         "data": {
             "character": 34
-        } // ban the character with ID 34
+        } // ban the character with ID 34 (Kamisato Ayaka)
     }
 }
 ```
