@@ -53,6 +53,9 @@ try{
                 case "status":
                     result = await updateStatus(jsonStr);
                     break;
+                case "players":
+                    result = await checkPlayers(jsonStr.id);
+                    break;
                 case "team":
                     result = await updateTeam(jsonStr);
                     break;
@@ -637,6 +640,41 @@ const getInformation = async(query) => {
     });
   }
 }
+
+const checkPlayers = async(info) => {
+  const gameInfo = await game.findById(info);
+  if (gameInfo == null) {
+    return JSON.stringify({
+      message: "Failure",
+      errType: "Nonexistent",
+      error: "The id is not valid for a current game.",
+    });
+  }
+  let resArr = [];
+  for(let i = 0; i < gameInfo.connected.length; i++){
+    if(i < 2){
+      if(gameInfo.connected[i] == 1){
+        resArr.push(true);
+      }
+      else{
+        resArr.push(false);
+      }
+    } // always players
+    else{
+      if (gameInfo.connected[i] >= 2) {
+        resArr.push(true);
+      } else {
+        resArr.push(false);
+      }
+    }
+  }
+  return JSON.stringify({
+    message: "Success",
+    type: "players",
+    playerStatus: resArr
+  });
+}
+
 /**
  * Sends the new team information to the database. Updates pick orders as well.
  * @param {*} info the json string parsed as data
