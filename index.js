@@ -39,9 +39,6 @@ try{
                 case "add":
                     result = await addItems(jsonStr);
                     break;
-                case "boss": 
-                    result = await addBoss(jsonStr);
-                    break;
                 case "character":
                     result = await addCharacter(jsonStr);
                 case "times":
@@ -482,37 +479,6 @@ const addItems = async (info) => {
         error: errVal,
       });
     }
-}
-
-const addCharacter = async(info) => {
-  // check for phase
-  // set information accordingly
-  // call addItems with said information
- 
-  const newInfo = await game.findById(info.id);
-  const jsonStr = JSON.stringify({
-    id: info.id,
-    type: "add",
-    changed: newInfo.result,
-    data: {
-      character: info.charId,
-      team: info.team
-    }
-  })
-  return addItems(jsonStr);
-}
-
-const addBoss = async(info) => {
-  const jsonStr = JSON.stringify({
-    id: info.id,
-    type: "add",
-    changed: "boss",
-    data: {
-      boss: info.bossId,
-      team: info.team
-    }
-  })
-  return addItems(jsonStr);
 }
 
 const addTimes = async (info) => {
