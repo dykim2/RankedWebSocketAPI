@@ -33,6 +33,11 @@ try{
                 case "add":
                     result = await addItems(jsonStr);
                     break;
+                case "boss": 
+                    result = await addBoss(jsonStr);
+                    break;
+                case "character":
+                    result = await addCharacter(jsonStr);
                 case "times":
                     result = await addTimes(jsonStr);
                     break;
@@ -153,6 +158,33 @@ const getGame = async(data) => {
         requesterOnly: true
       });
     }
+}
+// 
+const addBoss = async(info) => {
+  // just add a boss like normal
+  let newInfo = {
+    id: info.id,
+    type: "add",
+    changed: "boss",
+    data: {
+      boss: info.bossId,
+      team: info.team,
+    },
+  };
+  return addItems(newInfo);
+}
+const addCharacter = async(info) => {
+  const gameResult = await game.findById(info.id);
+  let newInfo = {
+    id: info.id,
+    type: "add",
+    changed: gameResult.result,
+    data: {
+      character: info.charId,
+      team: info.team,
+    },
+  };
+  return addItems(newInfo);
 }
 const addItems = async (info) => {
     // add information
