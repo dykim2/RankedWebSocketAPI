@@ -128,6 +128,7 @@ const createGame = async (data) => {
   if(data.mode == "premier"){
     length = 9;
   }
+  // data also now can add extra bans
   Object.assign(defaultSettings.penaltyt1, Array(length).fill(Array(6).fill(false)));
   // 6 is arbitrary (number of penalties), 3 is number of players, 7 is default number of bosses
   Object.assign(defaultSettings.penaltyt2, Array(length).fill(Array(6).fill(false)));
@@ -675,7 +676,9 @@ const checkPlayers = async(info) => {
   return JSON.stringify({
     message: "Success",
     type: "players",
-    playerStatus: resArr
+    playerStatus: resArr,
+    id: info,
+    requesterOnly: true
   });
 }
 
@@ -919,4 +922,4 @@ const checkCharacterExists = async(ID, value) => {
   }
 }
 
-server.listen(PORT, () => console.log("connected!"));   
+server.listen(PORT, '::', () => console.log("connected!"));   

@@ -20,6 +20,10 @@ const gameSchema = mongoose.Schema(
       type: [characterSchema],
       default: [],
     },
+    extrabans: {
+      type: [characterSchema],
+      default: [] // extra bans go in order, depending on the number of extra bans a team gets, max 2
+    },
     bosses: {
       type: [bossSchema],
       default: [],
@@ -27,6 +31,14 @@ const gameSchema = mongoose.Schema(
     draft: {
       type: Boolean,
       default: true, // draft or blind game
+    },
+    extrabanst1: {
+      type: Number,
+      default: 0 // number of extra bans team 1 gets
+    },
+    extrabanst2: {
+      type: Number,
+      default: 0
     },
     result: {
       type: String,

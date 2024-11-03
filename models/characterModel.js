@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 const characterSchema = mongoose.Schema({
   _id: Number,
   name: {
@@ -11,27 +11,32 @@ const characterSchema = mongoose.Schema({
   },
   element: {
     type: String,
-    required: true
+    required: true,
   },
   rarity: {
     type: Number,
-    default: 4
+    default: 4,
   },
   weapon: {
     type: String,
-    required: true
+    required: true,
   },
   region: {
     type: String,
-    required: true
+    required: true,
   },
   icon: {
-    type: String
+    type: String,
   },
-  chosen: { // whether the character was picked or banned during this game
+  restrictions: {
+    type: [String],
+    default: ["none", "none", "none", "none", "none", "none", "none"],
+  },
+  chosen: {
+    // whether the character was picked or banned during this game
     type: Boolean,
-    default: false
-  }
+    default: false,
+  },
 });
 
 module.exports = mongoose.model("character", characterSchema);
