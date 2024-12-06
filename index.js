@@ -220,25 +220,52 @@ const addItems = async (info) => {
               let newestBoss = await boss.findOne().sort({ _id: -1 });
               newestBoss = newestBoss._id;
               // find last id
-
               // generate random number
               let randomVal = -1; 
               let valid = true;
-              while(randomVal < 0 || bossIds.includes(randomVal) || !valid){
+              console.log("division: "+gameResult.division)
+              while(randomVal < 0 || bossIds.includes(randomVal) || valid == false){
                 randomVal = Math.floor(Math.random() * (newestBoss + 1));
+                // console.log("random: "+randomVal)
                 let newInfo = await boss.findById(randomVal);
+                // console.log("type: "+newInfo.type)
+                if (gameResult.fearless) {
+                  if (gameResult.fearlessBosses.includes(randomVal)) {
+                    valid = false;
+                  }
+                }
                 if((newInfo.type == "legend" && gameResult.division != "premier") || (newInfo.type == "weekly" && gameResult.division == "open")){
                   valid = false;
+                  // console.log("fail - division")
                 }
-                else if (gameResult.longBoss[info.data.team - 1] && newInfo.long) {
+                else if (gameResult.longBoss[info.data.team - 1] && newInfo.long == true) {
                   valid = false;
+                  // console.log("fail - long")
                 } else {
                   valid = true;
                 }
               }
               info.data.boss = randomVal;
             }
+            if (gameResult.fearless) { // fearless checker
+              if (gameResult.fearlessBosses.includes(info.data.boss)) {
+                return JSON.stringify({
+                  message: "Failure",
+                  errType: "Invalid",
+                  error: "Please provide a valid boss id to select. This boss was chosen in the specified fearless id.",
+                });
+              }
+            }
             let findBoss = await boss.findById(info.data.boss); // id of boss
+            /*
+            return JSON.stringify({
+              message: "Success",
+              type: "boss",
+              boss: info.data.boss,
+              name: findBoss.boss,
+              bossType: findBoss.type
+            })
+            */
             let last = false; // verify boss count
             if (
               findBoss == null ||
@@ -260,7 +287,6 @@ const addItems = async (info) => {
                 }
                 if(findBoss.long){
                   gameResult.longBoss[info.data.team - 1] = true;
-                  console.log("long boss")
                 }
                 break;
               }
