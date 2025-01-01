@@ -28,10 +28,6 @@ const characterSchema = mongoose.Schema({
   icon: {
     type: String,
   },
-  restrictions: {
-    type: [String],
-    default: ["none", "none", "none", "none", "none", "none", "none"],
-  },
   chosen: {
     // whether the character was picked or banned during this game
     type: Boolean,

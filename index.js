@@ -24,50 +24,50 @@ try{
             // calling options: 
             let result = ""; // should be a JSON string
             switch(jsonStr.type){
-                case "create":
-                    result = await createGame(jsonStr.id);
-                    break;
-                case "get":
-                    result = await getGame(jsonStr.id);
-                    break;
-                case "character":
-                    result = await addCharacter(jsonStr);
-                    break;
-                case "boss": 
-                    result = await addBoss(jsonStr);
-                    break;
-                case "add":
-                    result = await addItems(jsonStr);
-                    break;
-                case "character":
-                    result = await addCharacter(jsonStr);
-                case "times":
-                    result = await addTimes(jsonStr);
-                    break;
-                case "switch":
-                    result = await switchPhase(jsonStr.id, jsonStr.phase);
-                    break;
-                case "turn":
-                    result = await findTurn(jsonStr.id, jsonStr.getSelectionInfo);
-                    break; 
-                case "find":
-                    result = await getInformation(jsonStr.query);
-                    break; 
-                case "status":
-                    result = await updateStatus(jsonStr);
-                    break;
-                case "players":
-                    result = await checkPlayers(jsonStr.id);
-                    break;
-                case "team":
-                    result = await updateTeam(jsonStr);
-                    break;
-                case "ids":
-                    result = await findAllIds(id);
-                    break;
-                default:
-                    result = JSON.stringify({message: "Failure", errType: "Nonexistent", error: "Please enter a valid selection."});
-                    break;
+              case "create":
+                  result = await createGame(jsonStr.id);
+                  break;
+              case "get":
+                  result = await getGame(jsonStr.id);
+                  break;
+              case "character":
+                  result = await addCharacter(jsonStr);
+                  break;
+              case "boss": 
+                  result = await addBoss(jsonStr);
+                  break;
+              case "add":
+                  result = await addItems(jsonStr);
+                  break;
+              case "character":
+                  result = await addCharacter(jsonStr);
+              case "times":
+                  result = await addTimes(jsonStr);
+                  break;
+              case "switch":
+                  result = await switchPhase(jsonStr.id, jsonStr.phase);
+                  break;
+              case "turn":
+                  result = await findTurn(jsonStr.id, jsonStr.getSelectionInfo);
+                  break; 
+              case "find":
+                  result = await getInformation(jsonStr.query);
+                  break; 
+              case "status":
+                  result = await updateStatus(jsonStr);
+                  break;
+              case "players":
+                  result = await checkPlayers(jsonStr.id);
+                  break;
+              case "team":
+                  result = await updateTeam(jsonStr);
+                  break;
+              case "ids":
+                  result = await findAllIds(id);
+                  break;
+              default:
+                  result = JSON.stringify({message: "Failure", errType: "Nonexistent", error: "Please enter a valid selection."});
+                  break;
                 // add a few extra options
             }
             // ws.send("message obtained: " + message); 
@@ -223,7 +223,6 @@ const addItems = async (info) => {
               // generate random number
               let randomVal = -1; 
               let valid = true;
-              console.log("division: "+gameResult.division)
               while(randomVal < 0 || bossIds.includes(randomVal) || valid == false){
                 randomVal = Math.floor(Math.random() * (newestBoss + 1));
                 // console.log("random: "+randomVal)
@@ -278,17 +277,15 @@ const addItems = async (info) => {
                 error: "Please provide a valid boss id to select.",
               });
             }
-            for (let i = 0; i < gameResult.bosses.length; i++) {
-              if (gameResult.bosses[i]._id == -1) {
-                findBoss.chosen = true; // will not update to server unless i run save
-                gameResult.bosses[i] = findBoss;
-                if (i == gameResult.bosses.length - 1) {
-                  last = true;
-                }
-                if(findBoss.long){
-                  gameResult.longBoss[info.data.team - 1] = true;
-                }
-                break;
+            let firstEmpty = gameResult.bosses.findIndex((val) => val._id == -1);
+            if (firstEmpty != -1) {
+              findBoss.chosen = true; // will not update to server unless i run save
+              gameResult.bosses[firstEmpty] = findBoss;
+              if (firstEmpty == gameResult.bosses.length - 1) {
+                last = true;
+              }
+              if(findBoss.long){
+                gameResult.longBoss[info.data.team - 1] = true;
               }
             }
             let newTeam = 0; // switch teams
@@ -307,9 +304,14 @@ const addItems = async (info) => {
                 });
             }
             if (last) {
+              if(gameResult.extrabans.length > 0){
+                gameResult.result = "extraban";
+              }
+              else{
+                gameResult.result = "ban";
+              }
               newTeam = -1;
-              gameResult.result = "ban";
-            }
+            } 
             // add new boss, save. and return a message
             newTeam < 0 ? gameResult.turn = -1 * newTeam : gameResult.turn = newTeam;
             await gameResult.save();
@@ -322,7 +324,66 @@ const addItems = async (info) => {
               nextTeam: newTeam,
             });
           }
-          
+          case "extraban": {
+            // handle extra bans here, these go before normal bans
+            if (info.data.character == -3) {
+              info.data.character = -2; // random ban means no ban
+            }
+            const charPick = await character.findById(info.data.character);
+            let status = await checkCharacterExists(info.id, charPick);
+            if (
+              charPick == null ||
+              (status &&
+                info.data.character != -2 &&
+                info.data.character != -1)
+            ) {
+              return JSON.stringify({
+                message: "Failure",
+                errType: "Invalid",
+                error: "Please provide a valid character id to ban.",
+              });
+            }
+            // first check if the character even exists
+            let last = false; // for last team this is default
+            let newTeam = 1;
+            let firstEmpty = gameResult.extrabans.findIndex((val) => val._id == -1);
+            if (firstEmpty != -1) {
+              charPick.chosen = true;
+              gameResult.extrabans[firstEmpty] = charPick;
+              if (firstEmpty == gameResult.extrabans.length - 1) {
+                // swaps to picks on 4th and 6th ban - this is 6th ban
+                last = true;
+              }
+            }
+            if(!last){
+              // find who is next
+              let turnArr = [];
+              for(let i = 0; i < Math.max(gameResult.extrabanst1, gameResult.extrabanst2); i++){
+                if(i < gameResult.extrabanst1){
+                  turnArr.push(1);
+                }
+                if(i < gameResult.extrabanst2){
+                  turnArr.push(2);
+                }
+              }
+              newTeam = turnArr[firstEmpty + 1]; // calculates next team 
+              gameResult.turn = newTeam;
+            }
+            else{
+              gameResult.result = "ban";
+              newTeam = -2;
+              gameResult.turn = 1;
+            }
+            await gameResult.save();
+            return JSON.stringify({
+              message: "Success",
+              type: "extraban",
+              extraban: info.data.character,
+              game: gameResult,
+              id: info.id,
+              nextTeam: newTeam,
+            });
+          }
           case "ban": {
             // get character by index from character model and add it to the bans
             if (info.data.character == -3) {
@@ -338,17 +399,15 @@ const addItems = async (info) => {
               })
             }
             let last = 0;
-            for(let i = 0; i < gameResult.bans.length; i++){
-              if(gameResult.bans[i]._id == -1){
-                charPick.chosen = true;
-                gameResult.bans[i] = charPick;
-                if (i == gameResult.bans.length - 1) { // swaps to picks on 4th and 6th ban - this is 6th ban
-                  last = 1;
-                }
-                else if(i == gameResult.bans.length - 3){ // 4th ban
-                  last = 2;
-                }
-                break;
+            let firstEmpty = gameResult.bans.findIndex(val => val._id == -1);
+            if(firstEmpty != -1){
+              charPick.chosen = true;
+              gameResult.bans[firstEmpty] = charPick;
+              if (firstEmpty == gameResult.bans.length - 1) { // swaps to picks on 4th and 6th ban - this is 6th ban
+                last = 1;
+              }
+              else if(firstEmpty == gameResult.bans.length - 3){ // 4th ban
+                last = 2;
               }
             }
             // add new bans, save, return message
@@ -475,6 +534,7 @@ const addItems = async (info) => {
             }
             if(ind == swapt1[swapt1.length - 1] && info.data.team == 1){ // first team has very last pick
               newTeam = -1;
+              gameResult.result = "progress";
             }
             newTeam < 0 ? gameResult.turn = -1 * newTeam : gameResult.turn = 1 * newTeam;
             await gameResult.save();
@@ -935,7 +995,8 @@ const checkCharacterExists = async(ID, value) => {
   let t1 = JSON.stringify(targetGame.get("pickst1"));
   let t2 = JSON.stringify(targetGame.get("pickst2"));
   let bans = JSON.stringify(targetGame.get("bans"));
-  let total = t1 + t2 + bans;
+  let extrabans = JSON.stringify(targetGame.get("extrabans"));
+  let total = t1 + t2 + bans + extrabans;
   let valueString = JSON.stringify({
     _id: value._id,
     name: value.name
