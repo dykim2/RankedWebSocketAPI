@@ -15,7 +15,17 @@ const boss = require("./models/bossModel.js");
 
 try{
     wss.on('connection', function connection(ws) {
-        console.log("new client");
+        console.log("new client"); 
+        ""
+        setInterval(() => {
+            ws.send(JSON.stringify({message: "Connected"}));
+        }, 10000);
+        // thinking of server side timer
+        // in each game, set the current timer, and make a pause option available to a ref, which will pause the digital timer
+        // what if i forced the game to run on the same 35s interval, whilst it would delay the game shortly it would make the timer consistent, to the point where only the differing picks would change between games
+        // if the timer is paused, it will not update
+        // this would be bad for actual game tho, forcing a delay
+        // maybe make 3 options then, all with same timer, but essentially the game pro
         ws.on('message', async function incoming(message){
             // could send JSON data and sort it
             const jsonStr = JSON.parse(message);
