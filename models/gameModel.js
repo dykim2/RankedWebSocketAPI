@@ -56,6 +56,11 @@ const gameSchema = mongoose.Schema(
       type: [Number],
       default: [0, 0, 0], // captain 1, captain 2, ref 1, ref 2 connected?
     },
+    hovered: {
+      type: [Number],
+      default: [-1, -1], // whatever pick is currently being hovered; an attempt to make the website backend decide on the pick when time runs out
+      // needs to be unique per team, otherwise one team's hover will mess with the other team's hover
+    },
     team1: {
       type: String,
       default: "team 1",
