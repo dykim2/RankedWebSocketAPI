@@ -248,6 +248,7 @@ const addHover = async(info) => {
       error: "The id is not valid for a current game.",
     });
   }
+
   gameResult.hovered[info.team - 1] = info.hovered;
   await gameResult.save();
   // let pick stay as is
@@ -362,7 +363,7 @@ const addItems = async (info) => {
             let last = false; // verify boss count
             if (
               findBoss == null ||
-              (await checkExists(info.id, info.data, info.data.team, findBoss.boss)) 
+              (await checkExists(info.id, findBoss.long, info.data.team, findBoss.boss)) 
             ) {
               // instead of forcing an error, randomize it, mainly for the case of hovering
               info.data.boss = -3;
@@ -628,12 +629,22 @@ const addItems = async (info) => {
                 newTeam = 1;
               }
             }
+            timestampInfo.find((val) => val.id == info.id).timestamp = PICK_TIMER; 
             if (ind == swapt1[swapt1.length - 1] && info.data.team == 1) {
               // first team has very last pick
               newTeam = -1;
               gameResult.result = "progress";
+              const indexToRemove = timestampInfo.findIndex(
+                (val) => val.id == info.id
+              );
+              console.log("time to end");
+              if (indexToRemove != -1) {
+                // remove to prevent it from continuing to run
+                timestampInfo.splice(indexToRemove, 1);
+                console.log("ending");
+              }
+              // remove game here
             }
-            timestampInfo.find((val) => val.id == info.id).timestamp = PICK_TIMER; 
             newTeam < 0
               ? (gameResult.turn = -1 * newTeam)
               : (gameResult.turn = 1 * newTeam);
@@ -759,8 +770,10 @@ const switchPhase = async (ID, phase) => {
       }
       else if(phase == "progress"){
         const indexToRemove = timestampInfo.findIndex((val) => val.id == ID);
+        console.log("time to end");
         if(indexToRemove != -1){ // remove to prevent it from continuing to run
           timestampInfo.splice(indexToRemove, 1);
+          console.log("ending");
         }
       }
       if (updated == null) {
@@ -800,13 +813,17 @@ const findTurn = async(id, getSelectionInfo = false) => {
     });
   }
   else if(getSelectionInfo){
+    let stamp = timestampInfo.find((val) => val.id == id); 
+    let timer = -1;
+    if(stamp != undefined){
+      timer = stamp.timestamp;
+    }
     return JSON.stringify({
       message: "Success",
       type: "turn",
       turn: foundGame.turn,
-      bosses: foundGame.bosses,
-      chars: [...foundGame.bans, ...foundGame.pickst1, ...foundGame.pickst2],
       id: id,
+      timer: timer,
       requesterOnly: true
     });
   }
@@ -1068,24 +1085,23 @@ const checkAmounts = (data, division, type) => {
 /**
  * Checks if the target boss (information in the value section) has been selected in the current game.
  * @param {Number} ID the game ID
- * @param {Object} value the game info to see if a long boss has been chosen
- * @param {Object} team the team the player is on
+ * @param {Boolean} long if the boss is a long boss or not
+ * @param {Number} team the team that chose this boss
  * @param {String} boss the name of the boss
  * @returns true if the character is found, false if not
  */
-const checkExists = async (ID, value, team, boss) => {
-  if(value == null){
-    return true; // not because it exists, but instead because it should throw an error
-  }
+const checkExists = async (ID, long, team, boss) => {
   // check for premier or not
   // query the game for the corresponding item
   let targetGame = await game.findById(ID);
   let check = targetGame.get("bosses");
   // convert to strings and see if one includes the other
   check = JSON.stringify(check);
-  if(check.includes('"long":true') && targetGame.longBoss[team - 1] && value.long){ // checks current bosses and long boss, but does not check if the boss is actually long
-    console.log("long found")
-    return true; // prevent a second long boss from being chosen
+  if(check.includes('"long":true')){ // checks current bosses and long boss, but does not check if the boss is actually long
+    console.log("long found"); // just to check program can detect a long boss being chosen
+    if (targetGame.longBoss[team - 1] && long){ 
+      return true;
+    } // prevent a second long boss from being chosen
   }
   if(check.includes(boss)){
     console.log("general found");

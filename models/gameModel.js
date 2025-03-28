@@ -61,6 +61,10 @@ const gameSchema = mongoose.Schema(
       default: [-1, -1], // whatever pick is currently being hovered; an attempt to make the website backend decide on the pick when time runs out
       // needs to be unique per team, otherwise one team's hover will mess with the other team's hover
     },
+    ready: {
+      type: [Number],
+      default: [0, 0], // captain 1, captain 2 readied up? as long as one player has readied up start is active
+    },
     team1: {
       type: String,
       default: "team 1",
