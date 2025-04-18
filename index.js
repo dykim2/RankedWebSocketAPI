@@ -4,7 +4,6 @@ const app = express();
 const server = require("http").createServer(app);
 const WebSocket = require("ws");
 const wss = new WebSocket.Server({server: server})
-// app.get('/', (req, res) => res.send('hello world'));
 const MONGO_URL = process.env.MONGO_URL;
 const PORT = process.env.PORT;
 const development = process.env.NODE_ENV;
@@ -15,6 +14,7 @@ const game = require('./models/gameModel.js');
 const PICK_TIMER = 35; // 35 seconds for players to make a pick
 
 let timestampInfo = []; // array of game ids with timestamps
+let pausedInfo = []; // paused game info - game timestamp info here is saved and is not changed
 // format is as follows
 /*
   {
@@ -76,6 +76,11 @@ try{
               case "ids":
                   result = await findAllIds(id);
                   break;
+              case "pause":
+                  result = await pauseGame(id);
+                  break;
+              case "resume": 
+                  result = await resumeGame(id);
               default:
                   result = JSON.stringify({message: "Failure", errType: "Nonexistent", error: "Please enter a valid selection."});
                   break;
@@ -129,13 +134,15 @@ const createGame = async (data) => {
     division: "Advanced",
     result: "setup",
     connected: [0, 0, 0],
-    timest1: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    timest2: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    // timest1: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    // timest2: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     phase: "Waiting",
+    /*
     penaltyt1: {},
     penaltyt2: {},
     deatht1: {},
     deatht2: {}
+    */
   };
   let length = 7;
   const time = Date.time(); // basically use this to reset time
@@ -144,11 +151,13 @@ const createGame = async (data) => {
     length = 9;
   }
   // data also now can add extra bans
+  /*
   Object.assign(defaultSettings.penaltyt1, Array(length).fill(Array(6).fill(false)));
   // 6 is arbitrary (number of penalties), 3 is number of players, 7 is default number of bosses
   Object.assign(defaultSettings.penaltyt2, Array(length).fill(Array(6).fill(false)));
   Object.assign(defaultSettings.deatht1, Array(length).fill(Array(3).fill(false)));
   Object.assign(defaultSettings.deatht2, Array(length).fill(Array(3).fill(false))); 
+  */
   // creates a game with the default settings
   const res = await game.create(defaultSettings);
   return JSON.stringify({
@@ -1064,6 +1073,33 @@ const findAllIds = async(id) => {
     bosses: bossIds,
     chars: charIds,
     requesterOnly: true
+  });
+}
+const pauseGame = async(id) => {
+    // remove from timestampinfo
+  const indexToRemove = timestampInfo.findIndex((val) => val.id == id);
+  if(indexToRemove != -1){ // remove to prevent it from continuing to run
+    let result = timestampInfo.splice(indexToRemove, 1);
+    pausedInfo.push(result);
+  }
+  return JSON.stringify({
+    message: "Success",
+    type: "pause",
+    id: id
+  })
+
+}
+const resumeGame = async(id) => {
+  const indexToRemove = pausedInfo.findIndex((val) => val.id == id);
+  if (indexToRemove != -1) {
+    // remove to let it run again
+    let result = pausedInfo.splice(indexToRemove, 1);
+    timestampInfo.push(result);
+  }
+  return JSON.stringify({
+    message: "Success",
+    type: "resume",
+    id: id,
   });
 }
 

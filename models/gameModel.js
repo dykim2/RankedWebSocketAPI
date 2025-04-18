@@ -73,6 +73,7 @@ const gameSchema = mongoose.Schema(
       type: String,
       default: "team 2",
     },
+    /*
     penaltyt1: {
       type: Object,
       required: true,
@@ -89,6 +90,7 @@ const gameSchema = mongoose.Schema(
       type: Object,
       required: true,
     },
+    */
     turn: {
       type: Number,
       default: 1, // the turn number
@@ -97,6 +99,7 @@ const gameSchema = mongoose.Schema(
       type: [Boolean],
       default: [false, false],
     },
+    /*
     timest1: {
       type: [Number],
       default: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -105,6 +108,7 @@ const gameSchema = mongoose.Schema(
       type: [Number],
       default: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     },
+    */
     pickst1: {
       type: [characterSchema],
       default: [],
