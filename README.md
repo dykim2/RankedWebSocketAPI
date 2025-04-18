@@ -21,7 +21,7 @@ The `data` field holds all of the important data needed for the request. It come
 
 For `switch` requests, data should be as follows:
 ```json
-data: {
+"data": {
     "phase": "setup" // can be setup, progress, and finish. Any other option throws an error.
 }
 ```
