@@ -11,7 +11,10 @@ const mongoose = require("mongoose");
 const character = require("./models/characterModel.js")
 const boss = require("./models/bossModel.js");
 const game = require('./models/gameModel.js');
+const { start } = require('repl');
+const { getSystemErrorMap } = require('util');
 const PICK_TIMER = 35; // 35 seconds for players to make a pick
+let interval = null;
 
 let timestampInfo = []; // array of game ids with timestamps
 let pausedInfo = []; // paused game info - game timestamp info here is saved and is not changed
@@ -25,6 +28,7 @@ let pausedInfo = []; // paused game info - game timestamp info here is saved and
 
 try{
     wss.on('connection', function connection(ws) {
+        startInterval();
         console.log("new client");
         ws.on('message', async function incoming(message){
             // could send JSON data and sort it
@@ -77,10 +81,11 @@ try{
                   result = await findAllIds(id);
                   break;
               case "pause":
-                  result = await pauseGame(id);
+                  result = await pauseGame(jsonStr.id);
                   break;
               case "resume": 
-                  result = await resumeGame(id);
+                  result = await resumeGame(jsonStr.id);
+                  break;
               default:
                   result = JSON.stringify({message: "Failure", errType: "Nonexistent", error: "Please enter a valid selection."});
                   break;
@@ -94,6 +99,8 @@ try{
               ws.send(result); // send only back to the user
             }
             else{ // on a character selection, user switch, pick add, etc, etc. send to every client including the picker
+              console.log("send to client in general");
+              console.log(result);
               wss.clients.forEach(function each(client) {
                 // send data back to all connected clients
                 if (client.readyState === WebSocket.OPEN) {
@@ -124,6 +131,73 @@ mongoose
   .catch((err) => {
     console.log(err);
   });
+
+
+const startInterval = () => {
+  if(interval){
+    return;
+  }
+  interval = setInterval(async () => {
+    // where to store times
+    // decide to only update times on connecting to websocket or on a pick / ban
+
+    Object.entries(timestampInfo).forEach(async ([gameID, value]) => {
+      // check if the time is greater than 0, set to PICK_TIMER by default
+      if (value.timestamp >= 0) {
+        value.timestamp -= 1;
+      } else {
+        // if time is up, run a function that essentially randoms the pick and resets the timer
+        // first checks for hover
+
+        let thisGame = await game.findById(value.id);
+        let hovered = -3;
+        if (thisGame.hovered[thisGame.turn - 1] != -1) {
+          hovered = thisGame.hovered[thisGame.turn - 1];
+        }
+        // change newInfo accordingly
+        let newInfo = {
+          id: value.id,
+          type: "add",
+          changed: thisGame.result,
+          data: {
+            boss: hovered,
+            ban: hovered,
+            character: hovered,
+            team: thisGame.turn,
+          },
+        };
+        value.timestamp = PICK_TIMER;
+        let hoverResult = await addItems(newInfo);
+        // make sure to remove at the end
+        //
+        // let thisResult = await addItems(newInfo);
+        // send the result to all clients
+
+        wss.clients.forEach(function each(client) {
+          // send data back to all connected clients
+          if (client.readyState === WebSocket.OPEN) {
+            console.log("send to client on hover");
+            console.log(hoverResult);
+            client.send(hoverResult);
+            // this is successful so far
+            // next, grab phase from game info
+            // send to additem
+          }
+        });
+      }
+      // return the values whenever a connection is made from a client
+      // send a request on open socket
+    });
+    // create a global variable that stores the time, i think this is fine because times will disappear on restart but are not that important to store
+  }, 1000);
+
+}
+const stopInterval = () => {
+  if(interval){
+    clearInterval(interval);
+    interval = null;
+  }
+}
 
 const createGame = async (data) => {
     // create the game information
@@ -190,59 +264,6 @@ const getGame = async(data) => {
       });
     }
 }
-setInterval(async () => {
-  // where to store times
-  // decide to only update times on connecting to websocket or on a pick / ban
-
-  Object.entries(timestampInfo).forEach(async ([gameID, value]) => {
-    // check if the time is greater than 0, set to PICK_TIMER by default
-    if (value.timestamp >= 0) {
-      value.timestamp -= 1;
-    }
-    else{
-      // if time is up, run a function that essentially randoms the pick and resets the timer
-      // first checks for hover
-
-      let thisGame = await game.findById(value.id);
-      let hovered = -3;
-      if(thisGame.hovered[thisGame.turn - 1] != -1){
-        hovered = thisGame.hovered[thisGame.turn - 1]; 
-      }
-      // change newInfo accordingly
-      let newInfo = {
-        id: value.id,
-        type: "add",
-        changed: thisGame.result,
-        data: {
-          boss: hovered,
-          ban: hovered,
-          character: hovered,
-          team: thisGame.turn,
-        },
-      };
-      value.timestamp = PICK_TIMER;
-      let hoverResult = await addItems(newInfo);
-      // make sure to remove at the end
-      // 
-      // let thisResult = await addItems(newInfo);
-      // send the result to all clients
-      
-      wss.clients.forEach(function each(client) {
-        // send data back to all connected clients
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(hoverResult); // for now send placeholder for testing purposes
-          // this is successful so far
-          // next, grab phase from game info
-          // send to additem
-        }
-      });
-    }
-    // return the values whenever a connection is made from a client
-    // send a request on open socket
-  })
-  // create a global variable that stores the time, i think this is fine because times will disappear on restart but are not that important to store
-  
-}, 1000)
 
 
 const addHover = async(info) => {
@@ -646,11 +667,9 @@ const addItems = async (info) => {
               const indexToRemove = timestampInfo.findIndex(
                 (val) => val.id == info.id
               );
-              console.log("time to end");
               if (indexToRemove != -1) {
                 // remove to prevent it from continuing to run
                 timestampInfo.splice(indexToRemove, 1);
-                console.log("ending");
               }
               // remove game here
             }
@@ -676,7 +695,7 @@ const addItems = async (info) => {
             });
         }
     }
-    catch(err){
+    catch(err){ 
       console.log(err);
       let errVal =  (development == "development") ? err.toString() : "An error occurred";
       return JSON.stringify({
@@ -779,10 +798,8 @@ const switchPhase = async (ID, phase) => {
       }
       else if(phase == "progress"){
         const indexToRemove = timestampInfo.findIndex((val) => val.id == ID);
-        console.log("time to end");
         if(indexToRemove != -1){ // remove to prevent it from continuing to run
           timestampInfo.splice(indexToRemove, 1);
-          console.log("ending");
         }
       }
       if (updated == null) {
@@ -1080,21 +1097,23 @@ const pauseGame = async(id) => {
   const indexToRemove = timestampInfo.findIndex((val) => val.id == id);
   if(indexToRemove != -1){ // remove to prevent it from continuing to run
     let result = timestampInfo.splice(indexToRemove, 1);
-    pausedInfo.push(result);
+    pausedInfo.push(result[0]);
   }
   return JSON.stringify({
     message: "Success",
     type: "pause",
     id: id
   })
-
 }
 const resumeGame = async(id) => {
+  console.log("testtest");
+  console.log(pausedInfo);
   const indexToRemove = pausedInfo.findIndex((val) => val.id == id);
   if (indexToRemove != -1) {
+    console.log("found something");
     // remove to let it run again
     let result = pausedInfo.splice(indexToRemove, 1);
-    timestampInfo.push(result);
+    timestampInfo.push(result[0]);
   }
   return JSON.stringify({
     message: "Success",

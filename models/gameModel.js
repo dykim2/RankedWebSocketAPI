@@ -125,6 +125,10 @@ const gameSchema = mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    log: {
+      type: String,
+      default: "",
+    },
   },
   {
     timestamps: true,
