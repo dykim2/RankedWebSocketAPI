@@ -36,6 +36,12 @@ const gameSchema = mongoose.Schema(
       type: [bossSchema],
       default: [],
     },
+    bossBans: {
+      type: [bossSchema],
+      default: []
+      // TODO add "no ban", "random" as pickable options, show "random" as default
+      // TODO add hovering
+    },
     draft: {
       type: Boolean,
       default: true, // draft or blind game

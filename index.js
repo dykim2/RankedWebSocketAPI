@@ -11,14 +11,14 @@ const mongoose = require("mongoose");
 const character = require("./models/characterModel.js")
 const boss = require("./models/bossModel.js");
 const game = require('./models/gameModel.js');
-const { start } = require('repl');
-const { getSystemErrorMap } = require('util');
 const PICK_TIMER = 35; // 35 seconds for players to make a pick
 let interval = null;
 
 let timestampInfo = []; // array of game ids with timestamps
 let pausedInfo = []; // paused game info - game timestamp info here is saved and is not changed
 // format is as follows
+const connections = new Map();
+const messageMap = new Map();
 /*
   {
     "id": id,
@@ -27,14 +27,53 @@ let pausedInfo = []; // paused game info - game timestamp info here is saved and
 */
 
 try{
-    wss.on('connection', function connection(ws) {
+    wss.on('connection', function connection(ws, req) {
         startInterval();
-        console.log("new client");
+        // send query param with random uuid
+        // 
+        const url = new URL(req.url, `http://${req.headers.host}`);
+        const userId = url.searchParams.get("userId");
+        if(!connections.has(userId)){
+          connections.set(userId, ws);
+        }
+        else{
+          console.log("duplicate connection located!");
+          // closes previous connection and make sure it does not reconnect
+          connections.get(userId).close(1000, "This device is already connected! This should not reconnect!");
+          ws.close(1000, "Closing all other instances of a connection as well. Please let ample time to reconnect!");
+          // maybe not close this connection? 
+        }
+
         ws.on('message', async function incoming(message){
             // could send JSON data and sort it
             const jsonStr = JSON.parse(message);
             // 
             console.log(jsonStr);
+            switch(jsonStr.type){
+              case "character":
+              case "boss":
+              case "add":
+                const currTime = Date.now();
+                if(messageMap.has(jsonStr.id)){
+                  // to make sure double clicks arent triggered, check that each request was at least 1.5s apart (gifs playing should mean this is never accidentally triggered)
+                  const lastTime = messageMap.get(jsonStr.id);
+                  if(currTime - lastTime < 1500){
+                    ws.send(JSON.stringify({
+                      message: "Failure",
+                      errType: "Multiclick",
+                      error: "Clicking too fast!",
+                    }));
+                    return;
+                  }
+                  else{
+                    messageMap.set(jsonStr.id, currTime);
+                  }
+                }
+                else{
+                  messageMap.set(jsonStr.id, currTime);
+                }
+                break;
+            }
             // calling options: 
             let result = ""; // should be a JSON string
             switch(jsonStr.type){
@@ -62,6 +101,9 @@ try{
               case "switch":
                   result = await switchPhase(jsonStr.id, jsonStr.phase);
                   break;
+              case "dnd":
+                  result = await handleDND(jsonStr);
+                  break;
               case "turn":
                   result = await findTurn(jsonStr.id, jsonStr.getSelectionInfo);
                   break; 
@@ -76,6 +118,9 @@ try{
                   break;
               case "team":
                   result = await updateTeam(jsonStr);
+                  break;
+              case "names":
+                  result = await updateNames(jsonStr);
                   break;
               case "ids":
                   result = await findAllIds(id);
@@ -120,7 +165,10 @@ try{
             return;
         })
         // send timer here
-        
+        ws.on('close', () => {
+          console.log("client dc");
+          connections.delete(userId)
+        })
     })
 }
 catch(err){
@@ -671,7 +719,8 @@ const addItems = async (info) => {
                 // remove to prevent it from continuing to run
                 timestampInfo.splice(indexToRemove, 1);
               }
-              // remove game here
+              // note: remove game here
+              messageMap.delete(info.id);
             }
             newTeam < 0
               ? (gameResult.turn = -1 * newTeam)
@@ -800,6 +849,7 @@ const switchPhase = async (ID, phase) => {
         const indexToRemove = timestampInfo.findIndex((val) => val.id == ID);
         if(indexToRemove != -1){ // remove to prevent it from continuing to run
           timestampInfo.splice(indexToRemove, 1);
+          messageMap.delete(info.id);
         }
       }
       if (updated == null) {
@@ -813,7 +863,6 @@ const switchPhase = async (ID, phase) => {
         message: "Success",
         type: "phase",
         newPhase: phase,
-        game: updated,
         id: updated._id
       });
   }
@@ -828,6 +877,108 @@ const switchPhase = async (ID, phase) => {
     });
   }
     
+}
+const handleDND = async(info) => {
+  let thisGame = await game.findById(info.id);
+  if(!(thisGame.result == "progress" || thisGame.result == "finish")){
+    // do nothing
+    console.log("failed");
+    return JSON.stringify({
+      message: "Failure",
+      errType: "wait",
+      error: "Please do not drag and drop the bosses and characters until draft is over!"
+    })
+  }
+  if(info.values[0] == info.values[1]){
+    // do nothing, dropped back to original location
+    console.log("haha do nothing");
+    return JSON.stringify({
+      message: "Success",
+      type: "complete",
+      requesterOnly: true
+    })
+  }
+  else{
+    let result = "";
+    let first = null;
+    let firstInd = 0;
+    let second = null;
+    let secondInd = 0;
+    switch(info.where){
+      case "boss":
+        for(let i = 0; i < thisGame.bosses.length; i++){
+          if(thisGame.bosses[i]._id == info.values[0]){
+            first = thisGame.bosses[i];
+            firstInd = i;
+          }
+          if(thisGame.bosses[i]._id == info.values[1]){
+            second = thisGame.bosses[i];
+            secondInd = i;
+          }
+        }
+        thisGame.bosses[firstInd] = second;
+        thisGame.bosses[secondInd] = first;
+        result = JSON.stringify({
+          message: "Success",
+          type: "DND",
+          id: info.id,
+          where: info.where,
+          newBosses: thisGame.bosses
+        });
+        break;
+      case "t1":
+        for (let i = 0; i < thisGame.pickst1.length; i++) {
+          if (thisGame.pickst1[i]._id == info.values[0]) {
+            first = thisGame.pickst1[i];
+            firstInd = i;
+          }
+          if (thisGame.pickst1[i]._id == info.values[1]) {
+            second = thisGame.pickst1[i];
+            secondInd = i;
+          }
+        }
+        thisGame.pickst1[firstInd] = second;
+        thisGame.pickst1[secondInd] = first;
+        result = JSON.stringify({
+          message: "Success",
+          type: "DND",
+          id: info.id,
+          where: info.where,
+          newPicks: thisGame.pickst1
+        });
+        break;
+      case "t2":
+        for (let i = 0; i < thisGame.pickst2.length; i++) {
+          if (thisGame.pickst2[i]._id == info.values[0]) {
+            first = thisGame.pickst2[i];
+            firstInd = i;
+          }
+          if (thisGame.pickst2[i]._id == info.values[1]) {
+            second = thisGame.pickst2[i];
+            secondInd = i;
+          }
+        }
+        thisGame.pickst2[firstInd] = second;
+        thisGame.pickst2[secondInd] = first;
+        result = JSON.stringify({
+          message: "Success",
+          type: "DND",
+          id: info.id,
+          where: info.where,
+          newPicks: thisGame.pickst2
+        });
+        break;
+      default:
+        result = JSON.stringify({
+          message: "Failure",
+          errType: "wait",
+          error:
+            "Please choose an appropriate type of drag and drop to swap with.",
+        });
+    }
+    await thisGame.save();
+    return result;
+  }
 }
 const findTurn = async(id, getSelectionInfo = false) => {
   const foundGame = await game.findById(id).lean();
@@ -923,6 +1074,25 @@ const checkPlayers = async(info) => {
     id: info,
     requesterOnly: true
   });
+}
+
+const updateNames = async(info) => {
+  const gameInfo = await game.findById(info);
+  if (gameInfo == null) {
+    return JSON.stringify({
+      message: "Failure",
+      errType: "Nonexistent",
+      error: "The id is not valid for a current game.",
+    });
+  }
+  gameInfo[`playerst${info.team}`] = info.newNames;
+  await gameInfo.save();
+  return JSON.stringify({
+    message: "Success",
+    type: "names",
+    team: info.team,
+    names: info.newNames
+  })
 }
 
 /**
