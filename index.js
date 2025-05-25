@@ -119,6 +119,9 @@ try{
               case "team":
                   result = await updateTeam(jsonStr);
                   break;
+              case "overwrite":
+                  result = await overwrite(jsonStr);
+                  break;
               case "names":
                   result = await updateNames(jsonStr);
                   break;
@@ -137,8 +140,8 @@ try{
                 // add a few extra options
             }
             // ws.send("message obtained: " + message); 
-            // console.log("-----------------")
-            // console.log(result);
+            console.log("-----------------")
+            console.log(result);
             let resCopy = JSON.parse(result);
             if(resCopy.message == "Failure" || resCopy.requesterOnly){
               ws.send(result); // send only back to the user
@@ -1075,9 +1078,55 @@ const checkPlayers = async(info) => {
     requesterOnly: true
   });
 }
-
+const overwrite = async(info) => {
+  const gameInfo = await game.findById(info.id);
+  let choice = info.which == "boss" ? "bosses" : "pickst"+info.team;
+  // find the info of the original pick
+  // find the info of the new pick
+  // make it ref only, but unconditional
+  // i.e. doesnt get checked
+  // need to check if info.replacement is a character name or is a number
+  let res = undefined;
+  for(let i = 0; i < gameInfo[`${choice}`].length; i++){
+    if(gameInfo[`${choice}`][i]._id == info.original){
+      if(info.which == "boss"){
+        res = await boss.findById(info.replacement);
+      }
+      else{
+        res = await character.findById(info.replacement);
+      }
+      if(res != null){
+        gameInfo[`${choice}`][i] = res; 
+        await gameInfo.save();
+      }
+      else{
+        return JSON.stringify({
+          message: "Failure",
+          errType: "Nonexistent",
+          error: "Please choose a boss or character with a valid ID!"
+        })
+      }
+    }
+  }
+  if(res == undefined){
+    return JSON.stringify({
+      message: "Failure",
+      errType: "Nonexistent",
+      error: "Please choose a boss or character that has been picked!",
+    });
+  }
+  else{
+    return JSON.stringify({
+      message: "Success",
+      type: "overwrite",
+      id: info.id,
+      which: choice,
+      replacement: gameInfo[`${choice}`]
+    });
+  }
+}
 const updateNames = async(info) => {
-  const gameInfo = await game.findById(info);
+  const gameInfo = await game.findById(info.id);
   if (gameInfo == null) {
     return JSON.stringify({
       message: "Failure",
@@ -1090,6 +1139,7 @@ const updateNames = async(info) => {
   return JSON.stringify({
     message: "Success",
     type: "names",
+    id: info.id,
     team: info.team,
     names: info.newNames
   })
