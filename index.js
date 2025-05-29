@@ -30,7 +30,6 @@ try{
     wss.on('connection', function connection(ws, req) {
         startInterval();
         // send query param with random uuid
-        // 
         const url = new URL(req.url, `http://${req.headers.host}`);
         const userId = url.searchParams.get("userId");
         if(!connections.has(userId)){
@@ -42,12 +41,16 @@ try{
           connections.get(userId).close(1000, "This device is already connected! This should not reconnect!");
           ws.close(1000, "Closing all other instances of a connection as well. Please let ample time to reconnect!");
           // maybe not close this connection? 
+          connections.delete(userId);
         }
-
+        console.log("Total clients:", wss.clients.size);
         ws.on('message', async function incoming(message){
             // could send JSON data and sort it
             const jsonStr = JSON.parse(message);
-            // 
+            const thisGame = await game.findById(jsonStr.id);
+            if(thisGame != null){
+              thisGame.log += message + "\n\n";
+            }
             console.log(jsonStr);
             switch(jsonStr.type){
               case "character":
@@ -139,16 +142,21 @@ try{
                   break;
                 // add a few extra options
             }
+            if(thisGame != null){
+              thisGame.log += result + "\n\n";
+              await thisGame.save();
+            }
             // ws.send("message obtained: " + message); 
-            console.log("-----------------")
-            console.log(result);
+            // console.log("-----------------")
+            // console.log(result);
+            
             let resCopy = JSON.parse(result);
             if(resCopy.message == "Failure" || resCopy.requesterOnly){
               ws.send(result); // send only back to the user
             }
             else{ // on a character selection, user switch, pick add, etc, etc. send to every client including the picker
-              console.log("send to client in general");
-              console.log(result);
+              // console.log("send to client in general");
+              // console.log(result);
               wss.clients.forEach(function each(client) {
                 // send data back to all connected clients
                 if (client.readyState === WebSocket.OPEN) {
