@@ -4,3 +4,4 @@ fly.toml
 flyctl.exe
 Dockerfile
 .dockerignore
+logs/*

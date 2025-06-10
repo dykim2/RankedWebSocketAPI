@@ -138,6 +138,10 @@ const gameSchema = mongoose.Schema(
     infolog: {
       type: String,
       default: ""
+    },
+    processing: {
+      type: Boolean,
+      default: false
     }
   },
   {

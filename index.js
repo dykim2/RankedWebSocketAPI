@@ -5,7 +5,7 @@ const server = require("http").createServer(app);
 const WebSocket = require("ws");
 const wss = new WebSocket.Server({server: server})
 const MONGO_URL = process.env.MONGO_URL;
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 3000;
 const development = process.env.NODE_ENV;
 const mongoose = require("mongoose");
 const character = require("./models/characterModel.js")
@@ -38,18 +38,19 @@ try{
         else{
           console.log("duplicate connection located!");
           // closes previous connection and make sure it does not reconnect
-          connections.get(userId).close(1000, "This device is already connected! This should not reconnect!");
-          ws.close(1000, "Closing all other instances of a connection as well. Please let ample time to reconnect!");
+          // connections.get(userId).close(1000, "This device is already connected! This should not reconnect!");
+          // ws.close(1000, "Closing all other instances of a connection as well. Please let ample time to reconnect!");
           // maybe not close this connection? 
-          connections.delete(userId);
+          // connections.delete(userId);
         }
         console.log("Total clients:", wss.clients.size);
         ws.on('message', async function incoming(message){
             // could send JSON data and sort it
             const jsonStr = JSON.parse(message);
-            const thisGame = await game.findById(jsonStr.id);
-            if(thisGame != null){
-              thisGame.log += message + "\n\n";
+            const gameResult = await game.findById(jsonStr.id);
+            
+            if (gameResult != null) {
+              gameResult.log += message + " \n\n ";
             }
             console.log(jsonStr);
             switch(jsonStr.type){
@@ -75,14 +76,18 @@ try{
                 else{
                   messageMap.set(jsonStr.id, currTime);
                 }
+                if (gameResult.processing) {
+                  // add to logs, then proceed to do nothing
+                  gameResult.log += "\n\ncurrently logging, waiting\n\n";
+                  gameResult.save();
+                  // send nothing back
+                  return;
+                }
                 break;
             }
             // calling options: 
             let result = ""; // should be a JSON string
             switch(jsonStr.type){
-              case "create":
-                  result = await createGame(jsonStr.id);
-                  break;
               case "get":
                   result = await getGame(jsonStr.id);
                   break;
@@ -96,7 +101,7 @@ try{
                   result = await addBoss(jsonStr);
                   break;
               case "add":
-                  result = await addItems(jsonStr);
+                  result = await addItems(jsonStr, false);
                   break;
               case "times":
                   result = await addTimes(jsonStr);
@@ -141,10 +146,6 @@ try{
                   result = JSON.stringify({message: "Failure", errType: "Nonexistent", error: "Please enter a valid selection."});
                   break;
                 // add a few extra options
-            }
-            if(thisGame != null){
-              thisGame.log += result + "\n\n";
-              await thisGame.save();
             }
             // ws.send("message obtained: " + message); 
             // console.log("-----------------")
@@ -208,35 +209,38 @@ const startInterval = () => {
         // if time is up, run a function that essentially randoms the pick and resets the timer
         // first checks for hover
 
-        let thisGame = await game.findById(value.id);
+        let gameResult = await game.findById(value.id);
         let hovered = -3;
-        if (thisGame.hovered[thisGame.turn - 1] != -1) {
-          hovered = thisGame.hovered[thisGame.turn - 1];
+        if (gameResult.hovered[gameResult.turn - 1] != -1) {
+          hovered = gameResult.hovered[gameResult.turn - 1];
         }
         // change newInfo accordingly
         let newInfo = {
           id: value.id,
           type: "add",
-          changed: thisGame.result,
+          changed: gameResult.result,
           data: {
             boss: hovered,
             ban: hovered,
             character: hovered,
-            team: thisGame.turn,
+            team: gameResult.turn,
           },
         };
         value.timestamp = PICK_TIMER;
-        let hoverResult = await addItems(newInfo);
+        let hoverResult = await addItems(newInfo, false);
+        gameResult.log += hoverResult + "\n(hover result)\n";
+        gameResult.processing = false;
+        await gameResult.save();
         // make sure to remove at the end
         //
         // let thisResult = await addItems(newInfo);
         // send the result to all clients
-
+        
+        console.log("send to client on hover");
+        console.log(hoverResult);
         wss.clients.forEach(function each(client) {
           // send data back to all connected clients
           if (client.readyState === WebSocket.OPEN) {
-            console.log("send to client on hover");
-            console.log(hoverResult);
             client.send(hoverResult);
             // this is successful so far
             // next, grab phase from game info
@@ -257,7 +261,7 @@ const stopInterval = () => {
     interval = null;
   }
 }
-
+/*
 const createGame = async (data) => {
     // create the game information
   const defaultSettings = {
@@ -270,12 +274,12 @@ const createGame = async (data) => {
     // timest1: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     // timest2: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     phase: "Waiting",
-    /*
+    
     penaltyt1: {},
     penaltyt2: {},
     deatht1: {},
     deatht2: {}
-    */
+    
   };
   let length = 7;
   const time = Date.time(); // basically use this to reset time
@@ -290,7 +294,7 @@ const createGame = async (data) => {
   Object.assign(defaultSettings.penaltyt2, Array(length).fill(Array(6).fill(false)));
   Object.assign(defaultSettings.deatht1, Array(length).fill(Array(3).fill(false)));
   Object.assign(defaultSettings.deatht2, Array(length).fill(Array(3).fill(false))); 
-  */
+  
   // creates a game with the default settings
   const res = await game.create(defaultSettings);
   return JSON.stringify({
@@ -302,6 +306,7 @@ const createGame = async (data) => {
   });
 
 }
+*/
 const getGame = async(data) => {
     const res = await game.findById(data).lean();
     if(res == null){
@@ -339,13 +344,15 @@ const addHover = async(info) => {
   }
 
   gameResult.hovered[info.team - 1] = info.hovered;
-  await gameResult.save();
   // let pick stay as is
-  return JSON.stringify({
+  let returnInfo = JSON.stringify({
     message: "success",
     type: "complete",
     requesterOnly: true
   });
+  gameResult.log += returnInfo + " \n\n ";
+  await gameResult.save();
+  return returnInfo;
   // nothing needs to be done on local end, this is just to confirm it was received
 }
 // 
@@ -361,7 +368,7 @@ const addBoss = async(info) => {
       team: info.team,
     },
   };
-  return addItems(newInfo);
+  return addItems(newInfo, false);
 }
 const addCharacter = async(info) => {
   const gameResult = await game.findById(info.id);
@@ -374,20 +381,37 @@ const addCharacter = async(info) => {
       team: info.team,
     },
   };
-  return addItems(newInfo);
+  return addItems(newInfo, false);
 }
-const addItems = async (info) => {
+/***
+ * Adds items to the game as selected by players.
+ * @param info the game information
+ * @param inside whether this is called inside itself or by an outside function
+ * @return a JSON string that contains the result of this add operation
+ */
+const addItems = async (info, inside = false) => {
     // add information
     // change bosses, character picks
     try{
         const gameResult = await game.findById(info.id);
+        if(gameResult.processing && !inside){
+          return JSON.stringify({
+            message: "Failure",
+            type: "process",
+            error: "Currently processing, please hold!"
+          });
+        }
+        else if(!inside){
+          gameResult.processing = true;
+          await gameResult.save();
+        } // if already inside do nothing
         // verify turn is valid
         if(gameResult.turn != info.data.team){
           return JSON.stringify({
             message: "Failure",
             type: "tinker",
             error: "Team on user end and team on server end don't align. Are you tampering with the data?"
-          })
+          });
           // info.data.team = gameResult.turn;
         }
         // console.log(gameResult);
@@ -409,10 +433,15 @@ const addItems = async (info) => {
               while(randomVal < 0 || bossIds.includes(randomVal) || valid == false){
                 randomVal = Math.floor(Math.random() * (newestBoss + 1));
                 // console.log("random: "+randomVal)
-                let newInfo = await boss.findById(randomVal);
-                if(randomVal == 14){
+                /*
+                if(randomVal == 4){
+                  // since oceanid was removed - still needs to be tested
                   valid = false;
+                  continue;
                 }
+                   // instead deciding to just manually adjust the ids of every boss again
+                */
+                let newInfo = await boss.findById(randomVal);
                 // console.log("type: "+newInfo.type)
                 if (gameResult.fearless) {
                   if (gameResult.fearlessBosses.includes(randomVal)) {
@@ -436,7 +465,7 @@ const addItems = async (info) => {
               if (gameResult.fearlessBosses.includes(info.data.boss)) {
                 // again randomize
                 info.data.boss = -3;
-                return await addItems(info);
+                return await addItems(info, true);
               }
             }
             let findBoss = await boss.findById(info.data.boss); // id of boss
@@ -457,12 +486,12 @@ const addItems = async (info) => {
               // instead of forcing an error, randomize it, mainly for the case of hovering
               info.data.boss = -3;
               console.log("boss exists already!");
-              return await addItems(info);
+              return await addItems(info, true);
             }
             if (findBoss.type == "legend" && gameResult.division != "premier") {
               console.log("boss is premier!");
               info.data.boss = -3;
-              return await addItems(info);
+              return await addItems(info, true);
             }
             let firstEmpty = gameResult.bosses.findIndex((val) => val._id == -1);
             if (firstEmpty != -1) {
@@ -474,7 +503,16 @@ const addItems = async (info) => {
                 gameResult.longBoss[info.data.team - 1] = true;
               }
             }
-            timestampInfo.find((val) => val.id == info.id).timestamp = PICK_TIMER; 
+            // if this timestamp doesnt exist, re-add it
+            if(timestampInfo.find((val) => val.id == info.id) == undefined){
+              timestampInfo.push({
+                id: info.id,
+                timestamp: PICK_TIMER,
+              });
+            }
+            else{
+              timestampInfo.find((val) => val.id == info.id).timestamp = PICK_TIMER; 
+            }
             let newTeam = 0; // switch teams
             switch (info.data.team) {
               case 1:
@@ -484,11 +522,14 @@ const addItems = async (info) => {
                 newTeam = 1;
                 break;
               default:
-                return JSON.stringify({
+                let returnInfo = JSON.stringify({
                   message: "Failure",
                   errType: "Nonexistent",
                   error: "Please provide a valid team to select.",
                 });
+                gameResult.log += returnInfo + "\n\n";
+                await gameResult.save();
+                return returnInfo;
             }
             if (last) {
               if(gameResult.extrabans.length > 0){
@@ -501,14 +542,17 @@ const addItems = async (info) => {
             } 
             // add new boss, save. and return a message
             newTeam < 0 ? gameResult.turn = -1 * newTeam : gameResult.turn = newTeam;
-            await gameResult.save();
-            return JSON.stringify({
+            gameResult.processing = false;
+            let returnInfo = JSON.stringify({
               message: "Success",
               type: "boss",
               boss: info.data.boss,
               id: info.id,
               nextTeam: newTeam,
             });
+            gameResult.log += returnInfo + "\n\n";
+            await gameResult.save();
+            return returnInfo;
           }
           case "extraban": {
             // handle extra bans here, these go before normal bans
@@ -522,7 +566,7 @@ const addItems = async (info) => {
               (status && info.data.character != -2 && info.data.character != -1)
             ) {
               info.data.character = -2;
-              return await addItems(info); // forces no ban
+              return await addItems(info, true); // forces no ban
             }
             // first check if the character even exists
             let last = false; // for last team this is default
@@ -562,14 +606,17 @@ const addItems = async (info) => {
               newTeam = -2;
               gameResult.turn = 1;
             }
-            await gameResult.save();
-            return JSON.stringify({
+            gameResult.processing = false;
+            let returnInfo = JSON.stringify({
               message: "Success",
               type: "extraban",
               extraban: info.data.character,
               id: info.id,
               nextTeam: newTeam,
             });
+            gameResult.log += returnInfo + "\n\n";
+            await gameResult.save();
+            return returnInfo;
           }
           case "ban": {
             // get character by index from character model and add it to the bans
@@ -580,7 +627,7 @@ const addItems = async (info) => {
             let status = await checkCharacterExists(info.id, charPick);
             if (charPick == null || (status && info.data.character != -2 && info.data.character != -1)){
               info.data.character = -2;
-              return await addItems(info); // forces no ban
+              return await addItems(info, true); // forces no ban
             }
             let last = 0;
             let firstEmpty = gameResult.bans.findIndex(val => val._id == -1);
@@ -605,11 +652,14 @@ const addItems = async (info) => {
                 newTeam = 1;
                 break;
               default:
-                return JSON.stringify({
+                let returnInfo = JSON.stringify({
                   message: "Failure",
                   errType: "Nonexistent",
                   error: "Please provide a valid team to select.",
                 });
+                gameResult.log += returnInfo + "\n\n";
+                await gameResult.save();
+                return returnInfo;
             }
             if (last != 0) {
               newTeam = -1 * last;
@@ -627,14 +677,17 @@ const addItems = async (info) => {
                 gameResult.turn = newTeam;
                 break;
             }
-            await gameResult.save();
-            return JSON.stringify({
+            gameResult.processing = false;
+            let returnInfo = JSON.stringify({
               message: "Success",
               type: "ban",
               ban: info.data.character,
               id: info.id,
               nextTeam: newTeam,
             });
+            gameResult.log += returnInfo + "\n\n";
+            await gameResult.save();
+            return returnInfo;
           }
                 
           case "pick": {
@@ -666,7 +719,7 @@ const addItems = async (info) => {
               (await checkCharacterExists(info.id, charPick))
             ) {
               info.data.character = -3;
-              return await addItems(info);
+              return await addItems(info, true);
             }
             // add picks accordingly based on team
             const swapt1 = [0, 2, 4, 5];
@@ -736,9 +789,10 @@ const addItems = async (info) => {
             newTeam < 0
               ? (gameResult.turn = -1 * newTeam)
               : (gameResult.turn = 1 * newTeam);
-            await gameResult.save();
+
+            gameResult.processing = false;
             // find the first index at which
-            return JSON.stringify({
+            let returnInfo = JSON.stringify({
               message: "Success",
               type: "pick",
               pick: info.data.character,
@@ -746,13 +800,19 @@ const addItems = async (info) => {
               id: info.id,
               nextTeam: newTeam,
             });
+            gameResult.log += returnInfo + "\n\n";
+            await gameResult.save();
+            return returnInfo;
           }
           default:
-            return JSON.stringify({
+            let returnInfo = JSON.stringify({
               message: "Failure",
               errType: "Add",
-              error: "Please choose to add a boss, ban, or pick only.",
+              error: "Please choose to add a boss, ban, extraban, boss ban, or pick only.",
             });
+            gameResult.log += returnInfo + "\n\n";
+            await gameResult.save();
+            return returnInfo;
         }
     }
     catch(err){ 
@@ -799,16 +859,17 @@ const addTimes = async (info) => {
     
     // change the time
     currentTimes[timeInfo[0] - 1][timeInfo[1]] = timeInfo[2];
-    // save
-    await gameResult.save();
     // sends back the same time array
-    return JSON.stringify({
+    let returnInfo = JSON.stringify({
       message: "Success",
       type: "times",
       time: info.data,
       id: info.id,
       game: gameResult
     });
+    gameResult.log += returnInfo + "\n\n";
+    await gameResult.save();
+    return returnInfo;
   }
   catch(err){
     console.log(err);
@@ -825,6 +886,14 @@ const switchPhase = async (ID, phase) => {
     // change state - drafting (setup), playing (progress), game over (finish)
     // send this info back to everyone
   try{
+      let gameResult = await game.findById(ID);
+      if (gameResult == null) {
+        return JSON.stringify({
+          message: "Failure",
+          errType: "Nonexistent",
+          error: "The id is not valid for a current game.",
+        });
+      }
       phase = phase.toLowerCase();
       let cond = false;
       const keywords = ["waiting","setup","boss", "ban", "pick", "progress","finish","1","2"]
@@ -840,13 +909,16 @@ const switchPhase = async (ID, phase) => {
         }
       })
       if(!cond){
-          return JSON.stringify({
-            message: "Failure",
-            errType: "Phase",
-            error: "Please provide a valid phase.",
-          });
+        let returnInfo = JSON.stringify({
+          message: "Failure",
+          errType: "Phase",
+          error: "Please provide a valid phase.",
+        });
+        gameResult.log += returnInfo + "\n\n";
+        await gameResult.save();
+        return returnInfo;
       }
-      let updated = await game.findByIdAndUpdate(ID, {result: ""+phase}).lean(); // lean since info not needed
+      gameResult.result = ""+phase;
       // if change phase to boss, game started, so add timer
       if(phase == "boss"){
         console.log("added timer");
@@ -863,19 +935,15 @@ const switchPhase = async (ID, phase) => {
           messageMap.delete(info.id);
         }
       }
-      if (updated == null) {
-        return JSON.stringify({
-          message: "Failure",
-          errType: "Nonexistent",
-          error: "The id is not valid for a current game.",
-        });
-      }
-      return JSON.stringify({
+      let returnInfo = JSON.stringify({
         message: "Success",
         type: "phase",
         newPhase: phase,
-        id: updated._id
+        id: gameResult._id
       });
+      gameResult.log += returnInfo + "\n\n";
+      await gameResult.save();
+      return returnInfo;
   }
   catch(err){
     console.log(err);
@@ -890,8 +958,8 @@ const switchPhase = async (ID, phase) => {
     
 }
 const handleDND = async(info) => {
-  let thisGame = await game.findById(info.id);
-  if(!(thisGame.result == "progress" || thisGame.result == "finish")){
+  let gameResult = await game.findById(info.id);
+  if(!(gameResult.result == "progress" || gameResult.result == "finish")){
     // do nothing
     console.log("failed");
     return JSON.stringify({
@@ -910,121 +978,92 @@ const handleDND = async(info) => {
     })
   }
   else{
-    let result = "";
+    let returnInfo = "";
     let first = null;
     let firstInd = 0;
     let second = null;
     let secondInd = 0;
-    switch(info.where){
+    let whereInfo = "";
+    switch (info.where) {
       case "boss":
-        for(let i = 0; i < thisGame.bosses.length; i++){
-          if(thisGame.bosses[i]._id == info.values[0]){
-            first = thisGame.bosses[i];
-            firstInd = i;
-          }
-          if(thisGame.bosses[i]._id == info.values[1]){
-            second = thisGame.bosses[i];
-            secondInd = i;
-          }
-        }
-        thisGame.bosses[firstInd] = second;
-        thisGame.bosses[secondInd] = first;
-        result = JSON.stringify({
-          message: "Success",
-          type: "DND",
-          id: info.id,
-          where: info.where,
-          newBosses: thisGame.bosses
-        });
+        whereInfo = "bosses";
         break;
       case "t1":
-        for (let i = 0; i < thisGame.pickst1.length; i++) {
-          if (thisGame.pickst1[i]._id == info.values[0]) {
-            first = thisGame.pickst1[i];
-            firstInd = i;
-          }
-          if (thisGame.pickst1[i]._id == info.values[1]) {
-            second = thisGame.pickst1[i];
-            secondInd = i;
-          }
-        }
-        thisGame.pickst1[firstInd] = second;
-        thisGame.pickst1[secondInd] = first;
-        result = JSON.stringify({
-          message: "Success",
-          type: "DND",
-          id: info.id,
-          where: info.where,
-          newPicks: thisGame.pickst1
-        });
+        whereInfo = "pickst1";
         break;
       case "t2":
-        for (let i = 0; i < thisGame.pickst2.length; i++) {
-          if (thisGame.pickst2[i]._id == info.values[0]) {
-            first = thisGame.pickst2[i];
-            firstInd = i;
-          }
-          if (thisGame.pickst2[i]._id == info.values[1]) {
-            second = thisGame.pickst2[i];
-            secondInd = i;
-          }
-        }
-        thisGame.pickst2[firstInd] = second;
-        thisGame.pickst2[secondInd] = first;
-        result = JSON.stringify({
-          message: "Success",
-          type: "DND",
-          id: info.id,
-          where: info.where,
-          newPicks: thisGame.pickst2
-        });
+        whereInfo = "pickst2";
         break;
       default:
-        result = JSON.stringify({
+        returnInfo = JSON.stringify({
           message: "Failure",
           errType: "wait",
           error:
             "Please choose an appropriate type of drag and drop to swap with.",
         });
+        gameResult.log += returnInfo + "\n\n";
+        await gameResult.save();
+        return returnInfo;
     }
-    await thisGame.save();
-    return result;
+    for (let i = 0; i < gameResult[whereInfo].length; i++) {
+      if (gameResult[whereInfo][i]._id == info.values[0]) {
+        first = gameResult[whereInfo][i];
+        firstInd = i;
+      }
+      if (gameResult.bosses[i]._id == info.values[1]) {
+        second = gameResult[whereInfo][i];
+        secondInd = i;
+      }
+    }
+    gameResult[whereInfo][firstInd] = second;
+    gameResult[whereInfo][secondInd] = first;
+    returnInfo = JSON.stringify({
+      message: "Success",
+      type: "DND",
+      id: info.id,
+      where: info.where,
+      newResult: gameResult[whereInfo],
+    });
+    gameResult.log += returnInfo + "\n\n";
+    await gameResult.save();
+    return returnInfo;
   }
 }
 const findTurn = async(id, getSelectionInfo = false) => {
-  const foundGame = await game.findById(id).lean();
-  if(foundGame == null){
+  const gameResult = await game.findById(id);
+  let returnInfo = "";
+  if (gameResult == null) {
     return JSON.stringify({
       message: "Failure",
       errType: "Nonexistent",
       error: "The id is not valid for a current game.",
     });
-  }
-  else if(getSelectionInfo){
-    let stamp = timestampInfo.find((val) => val.id == id); 
+  } else if (getSelectionInfo) {
+    let stamp = timestampInfo.find((val) => val.id == id);
     let timer = -1;
-    if(stamp != undefined){
+    if (stamp != undefined) {
       timer = stamp.timestamp;
     }
-    return JSON.stringify({
+    returnInfo = JSON.stringify({
       message: "Success",
       type: "turn",
-      turn: foundGame.turn,
+      turn: gameResult.turn,
       id: id,
       timer: timer,
-      requesterOnly: true
+      requesterOnly: true,
     });
-  }
-  else{
-    return JSON.stringify({
+  } else {
+    returnInfo = JSON.stringify({
       message: "Success",
       type: "turn",
-      turn: foundGame.turn,
+      turn: gameResult.turn,
       id: id,
-      requesterOnly: true
+      requesterOnly: true,
     });
   }
-  
+  gameResult.log += returnInfo + "\n\n";
+  await gameResult.save();
+  return returnInfo;
 }
 
 const getInformation = async(query) => {
@@ -1052,8 +1091,8 @@ const getInformation = async(query) => {
 }
 
 const checkPlayers = async(info) => {
-  const gameInfo = await game.findById(info);
-  if (gameInfo == null) {
+  const gameResult = await game.findById(info);
+  if (gameResult == null) {
     return JSON.stringify({
       message: "Failure",
       errType: "Nonexistent",
@@ -1061,60 +1100,48 @@ const checkPlayers = async(info) => {
     });
   }
   let resArr = [];
-  for(let i = 0; i < gameInfo.connected.length; i++){
-    if(i < 2){
-      if(gameInfo.connected[i] == 1){
+  for (let i = 0; i < gameResult.connected.length; i++) {
+    if (i < 2) {
+      if (gameResult.connected[i] == 1) {
         resArr.push(true);
-      }
-      else{
+      } else {
         resArr.push(false);
       }
-    } // always players
-    else{
-      if (gameInfo.connected[i] >= 2) {
+    } 
+    else {
+      if (gameResult.connected[i] >= 2) {
         resArr.push(true);
       } else {
         resArr.push(false);
       }
     }
   }
-  return JSON.stringify({
+  let returnInfo = JSON.stringify({
     message: "Success",
     type: "players",
     playerStatus: resArr,
     id: info,
     requesterOnly: true
   });
+  gameResult.log += returnInfo + "\n\n";
+  await gameResult.save();
+  return returnInfo;
 }
 const overwrite = async(info) => {
-  const gameInfo = await game.findById(info.id);
-  let choice = info.which == "boss" ? "bosses" : "pickst"+info.team;
+  const gameResult = await game.findById(info.id);
+  let choice = info.which == "boss" ? "bosses" : info.which == "character" ? "pickst"+info.team : info.which == "ban" ? "bans" : "extrabans"
   // find the info of the original pick
   // find the info of the new pick
   // make it ref only, but unconditional
   // i.e. doesnt get checked
   // need to check if info.replacement is a character name or is a number
   let res = undefined;
-  for(let i = 0; i < gameInfo[`${choice}`].length; i++){
-    if(gameInfo[`${choice}`][i]._id == info.original){
-      if(info.which == "boss"){
-        res = await boss.findById(info.replacement);
-      }
-      else{
-        res = await character.findById(info.replacement);
-      }
-      if(res != null){
-        gameInfo[`${choice}`][i] = res; 
-        await gameInfo.save();
-      }
-      else{
-        return JSON.stringify({
-          message: "Failure",
-          errType: "Nonexistent",
-          error: "Please choose a boss or character with a valid ID!"
-        })
-      }
-    }
+  // info.original is now an index pass
+  if(info.which == "boss"){
+    res = await boss.findById(info.replacement);
+  }
+  else{
+    res = await character.findById(info.replacement);
   }
   if(res == undefined){
     return JSON.stringify({
@@ -1123,27 +1150,39 @@ const overwrite = async(info) => {
       error: "Please choose a boss or character that has been picked!",
     });
   }
+  if(res != null){
+    gameResult[`${choice}`][info.original] = res; 
+    await gameResult.save();
+  }
   else{
     return JSON.stringify({
-      message: "Success",
-      type: "overwrite",
-      id: info.id,
-      which: choice,
-      replacement: gameInfo[`${choice}`]
-    });
+      message: "Failure",
+      errType: "Nonexistent",
+      error: "Please choose a boss or character with a valid ID!"
+    })
   }
+  let returnInfo = JSON.stringify({
+    message: "Success",
+    type: "overwrite",
+    id: info.id,
+    which: choice,
+    replacement: gameResult[`${choice}`]
+  });
+  gameResult.log += returnInfo + "\n\n";
+  await gameResult.save();
+  return returnInfo;
 }
 const updateNames = async(info) => {
-  const gameInfo = await game.findById(info.id);
-  if (gameInfo == null) {
+  const gameResult = await game.findById(info.id);
+  if (gameResult == null) {
     return JSON.stringify({
       message: "Failure",
       errType: "Nonexistent",
       error: "The id is not valid for a current game.",
     });
   }
-  gameInfo[`playerst${info.team}`] = info.newNames;
-  await gameInfo.save();
+  gameResult[`playerst${info.team}`] = info.newNames;
+  await gameResult.save();
   return JSON.stringify({
     message: "Success",
     type: "names",
@@ -1160,8 +1199,8 @@ const updateNames = async(info) => {
  * team is either 1 or 2 always.
  */
 const updateTeam = async(info) => {
-  const gameInfo = await game.findById(info.id);
-  if (gameInfo == null) {
+  const gameResult = await game.findById(info.id);
+  if (gameResult == null) {
     return JSON.stringify({
       message: "Failure",
       errType: "Nonexistent",
@@ -1169,53 +1208,60 @@ const updateTeam = async(info) => {
     });
   }
   if (new Set(info.data.order).size != info.data.order.length) {
-    return JSON.stringify({
+    let returnInfo = JSON.stringify({
       message: "Failure",
       errType: "Team",
       error: "Please make sure each player has two characters.",
     });
+    gameResult.log += returnInfo + "\n\n";
+    await gameResult.save();
+    return returnInfo;
   }
   let newPicks = [];
   if (info.team != 1 && info.team != 2) {
-    return JSON.stringify({
+    let returnInfo = JSON.stringify({
       message: "Failure",
       errType: "Nonexistent",
       error: "Please make sure to select a valid team number!",
     });
+    gameResult.log += returnInfo + "\n\n";
+    await gameResult.save();
+    return returnInfo;
   }
-  if(gameInfo.result.toLowerCase() == "progress" && new Set(info.data.order).size == info.data.order.length){
+  if(gameResult.result.toLowerCase() == "progress" && new Set(info.data.order).size == info.data.order.length){
     let picksList = [];
-    for (let i = 0; i < gameInfo.pickst1.length; i++) {
-      picksList.push(gameInfo[`pickst${info.team}`][info.data.order[i]]); // copy data from old array and move to new
+    for (let i = 0; i < gameResult.pickst1.length; i++) {
+      picksList.push(gameResult[`pickst${info.team}`][info.data.order[i]]); // copy data from old array and move to new
       newPicks.push(info.data.order[i])
       console.log(newPicks);
     }
-    gameInfo[`pickst${info.team}`] = picksList;
+    gameResult[`pickst${info.team}`] = picksList;
   }
   else{
     newPicks = [0, 1, 2, 3, 4, 5]; // fix order
   }
-  gameInfo[`team${info.team}`] = info.data.teamName;
-  gameInfo[`playerst${info.team}`] = info.data.playerNames;
-  
-  await gameInfo.save();
-  return JSON.stringify({
+  gameResult[`team${info.team}`] = info.data.teamName;
+  gameResult[`playerst${info.team}`] = info.data.playerNames;
+  let returnInfo = JSON.stringify({
     message: "Success",
     type: "TeamUpdate",
-    game: gameInfo,
     team: info.team,
     id: info.id,
     teamName: info.data.teamName,
     order: newPicks,
     playerNames: info.data.playerNames,
   });
+  gameResult.log += returnInfo + "\n\n";
+  await gameResult.save();
+  return returnInfo;
 }
 
+
 const updateStatus = async (info) => {
-  const gameInfo = await game.findById(info.id);
-  // console.log(gameInfo);
+  const gameResult = await game.findById(info.id);
+  // console.log(gameResult);
   let failed = false;
-  if(gameInfo == null){
+  if(gameResult == null){
     return JSON.stringify({
       message: "Failure",
       errType: "Nonexistent",
@@ -1226,13 +1272,13 @@ const updateStatus = async (info) => {
     case 1:
       switch(info.menu.toLowerCase()){
         case "penalty": {
-          gameInfo.penaltyt1[info.data.bossIndex] = info.data.status;
-          gameInfo.markModified('penaltyt1');
+          gameResult.penaltyt1[info.data.bossIndex] = info.data.status;
+          gameResult.markModified('penaltyt1');
           break;
         }
         case "death": {
-          gameInfo.deatht1[info.data.bossIndex] = info.data.status;
-          gameInfo.markModified('deatht1');
+          gameResult.deatht1[info.data.bossIndex] = info.data.status;
+          gameResult.markModified('deatht1');
           break;
         }
         default:
@@ -1243,13 +1289,13 @@ const updateStatus = async (info) => {
     case 2:
       switch (info.menu.toLowerCase()) {
         case "penalty": {
-          gameInfo.penaltyt2[info.data.bossIndex] = info.data.status;
-          gameInfo.markModified("penaltyt2");
+          gameResult.penaltyt2[info.data.bossIndex] = info.data.status;
+          gameResult.markModified("penaltyt2");
           break;
         }
         case "death": {
-          gameInfo.deatht2[info.data.bossIndex] = info.data.status;
-          gameInfo.markModified("deatht2");
+          gameResult.deatht2[info.data.bossIndex] = info.data.status;
+          gameResult.markModified("deatht2");
           break;
         }
         default:
@@ -1268,8 +1314,7 @@ const updateStatus = async (info) => {
       error: "Please ensure all necessary status info is posted."
     })
   }
-  await gameInfo.save();
-  return JSON.stringify({
+  let returnInfo = JSON.stringify({
     message: "Success",
     type: "status",
     menu: info.menu,
@@ -1277,12 +1322,15 @@ const updateStatus = async (info) => {
     id: info.id,
     bossIndex: info.data.bossIndex,
     status: info.data.status
-  })
+  });
+  gameResult.log += returnInfo + "\n\n";
+  await gameResult.save();
+  return returnInfo;
 };
 
 const findAllIds = async(id) => {
-  const gameInfo = await game.findById(id);
-  if(gameInfo == null){
+  const gameResult = await game.findById(id);
+  if(gameResult == null){
     return JSON.stringify({
       message: "Failure",
       errType: "Nonexistent",
@@ -1291,14 +1339,15 @@ const findAllIds = async(id) => {
   }
   let bossIds = [];
   let charIds = [];
-  for(let i = 0; i < gameInfo.bosses; i++){
-    bossIds.push(gameInfo.bosses[i]._id)
-    if(i < gameInfo.bans.length){
-      charIds.push(gameInfo.bans[i]._id);
+  let length = gameResult.bosses.length > gameResult.pickst1.length ? gameResult.bosses.length : gameResult.pickst1.length;
+  for(let i = 0; i < length; i++){ 
+    bossIds.push(gameResult.bosses[i]._id)
+    if(i < gameResult.bans.length){
+      charIds.push(gameResult.bans[i]._id);
     }
-    if(i < gameInfo.pickst1.length){
-      charIds.push(gameInfo.pickst1[i]._id);
-      charIds.push(gameInfo.pickst2[i]._id);
+    if(i < gameResult.pickst1.length){
+      charIds.push(gameResult.pickst1[i]._id);
+      charIds.push(gameResult.pickst2[i]._id);
     }
   }
   bossIds = [...new Set(bossIds)];
@@ -1311,7 +1360,7 @@ const findAllIds = async(id) => {
   if(charInd != -1){
     charIds.splice(charInd, 1);
   }
-  return JSON.stringify({
+  let returnInfo = JSON.stringify({
     message: "Success",
     type: "selections",
     id: id,
@@ -1319,6 +1368,9 @@ const findAllIds = async(id) => {
     chars: charIds,
     requesterOnly: true
   });
+  gameResult.log += returnInfo + "\n\n";
+  await gameResult.save();
+  return returnInfo;
 }
 const pauseGame = async(id) => {
     // remove from timestampinfo
@@ -1376,13 +1428,13 @@ const checkAmounts = (data, division, type) => {
 const checkExists = async (ID, long, team, boss) => {
   // check for premier or not
   // query the game for the corresponding item
-  let targetGame = await game.findById(ID);
-  let check = targetGame.get("bosses");
+  let gameResult = await game.findById(ID);
+  let check = gameResult.get("bosses");
   // convert to strings and see if one includes the other
   check = JSON.stringify(check);
   if(check.includes('"long":true')){ // checks current bosses and long boss, but does not check if the boss is actually long
     console.log("long found"); // just to check program can detect a long boss being chosen
-    if (targetGame.longBoss[team - 1] && long){ 
+    if (gameResult.longBoss[team - 1] && long) {
       return true;
     } // prevent a second long boss from being chosen
   }
@@ -1403,11 +1455,11 @@ const checkCharacterExists = async(ID, value) => {
   if(value == null){
     return true; // not because it exists, but instead because it should throw an error
   }
-  let targetGame = await game.findById(ID);
-  let t1 = JSON.stringify(targetGame.get("pickst1"));
-  let t2 = JSON.stringify(targetGame.get("pickst2"));
-  let bans = JSON.stringify(targetGame.get("bans"));
-  let extrabans = JSON.stringify(targetGame.get("extrabans"));
+  let gameResult = await game.findById(ID);
+  let t1 = JSON.stringify(gameResult.get("pickst1"));
+  let t2 = JSON.stringify(gameResult.get("pickst2"));
+  let bans = JSON.stringify(gameResult.get("bans"));
+  let extrabans = JSON.stringify(gameResult.get("extrabans"));
   let total = t1 + t2 + bans + extrabans;
   if (total.includes(value.name)) {
     return true;
@@ -1416,4 +1468,4 @@ const checkCharacterExists = async(ID, value) => {
   }
 }
 
-server.listen(PORT, '::', () => console.log("connected!"));   
+server.listen(PORT, '0.0.0.0', () => console.log(`connected on port ${PORT}!`));   
