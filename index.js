@@ -133,6 +133,9 @@ try{
               case "names":
                   result = await updateNames(jsonStr);
                   break;
+              case "teamname":
+                  result = await updateTeamNames(jsonStr);
+                  break;
               case "ids":
                   result = await findAllIds(id);
                   break;
@@ -261,54 +264,11 @@ const stopInterval = () => {
     interval = null;
   }
 }
-/*
-const createGame = async (data) => {
-    // create the game information
-  const defaultSettings = {
-    _id: data,
-    playerst1: ["player1", "player2", "player3"],
-    playerst2: ["player4", "player5", "player6"],
-    division: "Advanced",
-    result: "setup",
-    connected: [0, 0, 0],
-    // timest1: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    // timest2: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    phase: "Waiting",
-    
-    penaltyt1: {},
-    penaltyt2: {},
-    deatht1: {},
-    deatht2: {}
-    
-  };
-  let length = 7;
-  const time = Date.time(); // basically use this to reset time
-  defaultSettings.timestamp = time;
-  if(data.mode == "premier"){
-    length = 9;
-  }
-  // data also now can add extra bans
-  /*
-  Object.assign(defaultSettings.penaltyt1, Array(length).fill(Array(6).fill(false)));
-  // 6 is arbitrary (number of penalties), 3 is number of players, 7 is default number of bosses
-  Object.assign(defaultSettings.penaltyt2, Array(length).fill(Array(6).fill(false)));
-  Object.assign(defaultSettings.deatht1, Array(length).fill(Array(3).fill(false)));
-  Object.assign(defaultSettings.deatht2, Array(length).fill(Array(3).fill(false))); 
-  
-  // creates a game with the default settings
-  const res = await game.create(defaultSettings);
-  return JSON.stringify({
-    message: "Success",
-    type: "create",
-    game: res,
-    id: res._id,
-    requesterOnly: true,
-  });
+// next goal: bug fix + 3rd ban
 
-}
-*/
 const getGame = async(data) => {
     const res = await game.findById(data).lean();
+    let ind = 0;
     if(res == null){
       let errVal =
         development == "development" ? "Game not found" : "An error occurred";
@@ -319,11 +279,31 @@ const getGame = async(data) => {
       });
     }
     else{
+      // check if game is in timestampinfo or pausedinfo
+      ind = checkResume(data).timestamp;
+      let paused = false;
+      if(ind != -1){
+        paused = true;
+      }
+      else{
+        ind = checkPause(data).timestamp;
+        if(ind == -1){
+          // throw an error
+          return JSON.stringify({
+            message: "Failure",
+            errType: "Nonexistent",
+            error: "The id is not valid for a current game."
+          })
+        }
+      }
+      // pass this time on to a game on refresh game info, but subtract 1 second or do what the get time does
       return JSON.stringify({
         message: "Success",
         type: "get",
         game: res,
         id: res._id,
+        paused: paused,
+        time: ind,
         requesterOnly: true
       });
     }
@@ -1191,6 +1171,32 @@ const updateNames = async(info) => {
     names: info.newNames
   })
 }
+const updateTeamNames = async(info) => {
+  if (team != 1 && team != 2) {
+    return JSON.stringify({
+      message: "Failure",
+      errType: "Nonexistent",
+      error: "The specified team is invalid.",
+    });
+  }
+  const gameResult = await game.findById(info.id);
+  if(gameResult == null){
+    return JSON.stringify({
+      message: "Failure",
+      errType: "Nonexistent",
+      error: "The id is not valid for a current game.",
+    });
+  }
+  gameResult[`team${info.team}`] = info.newName;
+  await gameResult.save();
+  return JSON.stringify({
+    message: "Success",
+    type: "teamname",
+    id: info.id,
+    team: info.team,
+    newName: info.newName,
+  });
+}
 
 /**
  * Sends the new team information to the database. Updates pick orders as well.
@@ -1372,12 +1378,19 @@ const findAllIds = async(id) => {
   await gameResult.save();
   return returnInfo;
 }
-const pauseGame = async(id) => {
-    // remove from timestampinfo
+const checkPause = (id) => {
   const indexToRemove = timestampInfo.findIndex((val) => val.id == id);
   if(indexToRemove != -1){ // remove to prevent it from continuing to run
     let result = timestampInfo.splice(indexToRemove, 1);
-    pausedInfo.push(result[0]);
+    return result[0];
+  }
+  return -1;
+}
+const pauseGame = async(id) => {
+    // remove from timestampinfo
+  let pauseRes = checkPause(id);
+  if(pauseRes != -1){
+    pausedInfo.push(pauseRes);
   }
   return JSON.stringify({
     message: "Success",
@@ -1385,15 +1398,21 @@ const pauseGame = async(id) => {
     id: id
   })
 }
-const resumeGame = async(id) => {
-  console.log("testtest");
-  console.log(pausedInfo);
-  const indexToRemove = pausedInfo.findIndex((val) => val.id == id);
-  if (indexToRemove != -1) {
-    console.log("found something");
+const checkResume = (id) => {
+  const indexToAdd = pausedInfo.findIndex((val) => val.id == id);
+  if (indexToAdd != -1) {
     // remove to let it run again
-    let result = pausedInfo.splice(indexToRemove, 1);
-    timestampInfo.push(result[0]);
+    let result = pausedInfo.splice(indexToAdd, 1);
+    return result[0];
+  }
+  return -1;
+}
+const resumeGame = async(id) => {
+  // console.log("testtest");
+  // console.log(pausedInfo);
+  let resumeRes = checkResume(id);
+  if(resumeRes != -1){
+    timestampInfo.push(resumeRes);
   }
   return JSON.stringify({
     message: "Success",
@@ -1468,4 +1487,4 @@ const checkCharacterExists = async(ID, value) => {
   }
 }
 
-server.listen(PORT, '0.0.0.0', () => console.log(`connected on port ${PORT}!`));   
+server.listen(3000, '0.0.0.0', () => console.log(`connected on port ${PORT}!`));   
