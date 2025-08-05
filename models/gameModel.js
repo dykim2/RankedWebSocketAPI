@@ -20,6 +20,10 @@ const gameSchema = mongoose.Schema(
       type: [characterSchema],
       default: [],
     },
+    totalBans: {
+      type: Number,
+      default: 8
+    },
     extrabans: {
       type: [characterSchema],
       default: [], // extra bans go in order, depending on the number of extra bans a team gets, max 3
