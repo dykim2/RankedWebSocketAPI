@@ -984,7 +984,7 @@ const handleDND = async(info) => {
         first = gameResult[whereInfo][i];
         firstInd = i;
       }
-      if (gameResult.bosses[i]._id == info.values[1]) {
+      if (gameResult[whereInfo][i]._id == info.values[1]) {
         second = gameResult[whereInfo][i];
         secondInd = i;
       }
