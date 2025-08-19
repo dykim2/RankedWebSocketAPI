@@ -670,14 +670,18 @@ const addItems = async (info, inside = false) => {
           // choose a random pick
           // first find all picks and bans chosen
           let infoIds = [];
-          for (let i = 0; i < gameResult.bans.length; i++) {
-            // i see what is wrong here
-            // bans is up to 8 but picks are up to 6
+          for (let i = 0; i < Math.max(gameResult.bans.length, gameResult.pickst1.length); i++) {
             if(i < gameResult.pickst1.length){
               infoIds.push(gameResult.pickst1[i]._id);
               infoIds.push(gameResult.pickst2[i]._id);
             }
-            infoIds.push(gameResult.bans[i]._id);
+            if(i < gameResult.bans.length){
+              infoIds.push(gameResult.bans[i]._id);
+            }
+            // account for extra bans too
+            if(i < gameResult.extrabans.length){
+              infoIds.push(gameResult.extrabans[i]._id);
+            }
           }
           infoIds = [...new Set(infoIds)];
           let newestPick = await character.findOne().sort({ _id: -1 });
