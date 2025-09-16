@@ -44,11 +44,10 @@ try{
             // could send JSON data and sort it
             const jsonStr = JSON.parse(message);
             const gameResult = await game.findById(jsonStr.id);
-            
+            console.log(jsonStr);
             if (gameResult != null) {
               gameResult.log += message + " \n\n ";
             }
-            console.log(jsonStr);
             switch(jsonStr.type){
               case "character":
               case "boss":
@@ -140,6 +139,9 @@ try{
                   break;
               case "resume": 
                   result = await resumeGame(jsonStr.id);
+                  break;
+              case "latest":
+                  result = await findLatest(jsonStr.id);
                   break;
               default:
                   result = JSON.stringify({message: "Failure", errType: "Nonexistent", error: "Please enter a valid selection."});
@@ -388,35 +390,23 @@ const addItems = async (info, inside = false) => {
       });
       // info.data.team = gameResult.turn;
     }
-    // console.log(gameResult);
+    let allPicks = []; // used to find matches for characters chosen
+    allPicks = allPicks.concat(gameResult.bans, gameResult.extrabans, gameResult.pickst1, gameResult.pickst2);
     switch (info.changed) {
       case "boss": {
         if(info.data.boss == -3){
           // choose a random boss
           // first find all bosses chosen
-          let bossIds = [];
-          for(let i = 0; i < gameResult.bosses.length; i++){
-            bossIds.push(gameResult.bosses[i]._id);
-          } 
+          let bossIds = [...gameResult.bosses];
           let newestBoss = await boss.findOne().sort({ _id: -1 });
           newestBoss = newestBoss._id;
-          // find last id
-          // generate random number
+          // find last id and generate random number
           let randomVal = -1; 
           let valid = true;
+          // boss randomizer
           while(randomVal < 0 || bossIds.includes(randomVal) || valid == false){
             randomVal = Math.floor(Math.random() * (newestBoss + 1));
-            // console.log("random: "+randomVal)
-            /*
-            if(randomVal == 4){
-              // since oceanid was removed - still needs to be tested
-              valid = false;
-              continue;
-            }
-                // instead deciding to just manually adjust the ids of every boss again
-            */
-            let newInfo = await boss.findById(randomVal);
-            // console.log("type: "+newInfo.type)
+            let newInfo = await boss.findById(randomVal); // bottleneck????
             if (gameResult.fearless) {
               if (gameResult.fearlessBosses.includes(randomVal)) {
                 valid = false;
@@ -424,11 +414,9 @@ const addItems = async (info, inside = false) => {
             }
             if((newInfo.type == "legend" && gameResult.division != "premier") || (newInfo.type == "weekly" && gameResult.division == "open")){
               valid = false;
-              // console.log("fail - division")
             }
             else if (gameResult.longBoss[info.data.team - 1] && newInfo.long == true) {
               valid = false;
-              // console.log("fail - long")
             } else {
               valid = true;
             }
@@ -442,7 +430,6 @@ const addItems = async (info, inside = false) => {
             return await addItems(info, true);
           }
         }
-        let findBoss = await boss.findById(info.data.boss); // id of boss
         /*
         return JSON.stringify({
           message: "Success",
@@ -453,9 +440,10 @@ const addItems = async (info, inside = false) => {
         })
         */
         let last = false; // verify boss count
+        const findBoss = await boss.findById(info.data.boss);
+        console.log("test test test test");
         if (
-          findBoss == null ||
-          (await checkExists(info.id, findBoss.long, info.data.team, findBoss.boss)) 
+          findBoss == null || findBoss == undefined || checkExists(gameResult.bosses, gameResult.longBoss[info.data.team - 1], info.data.boss, findBoss.long)
         ) {
           // instead of forcing an error, randomize it, mainly for the case of hovering
           info.data.boss = -3;
@@ -467,15 +455,20 @@ const addItems = async (info, inside = false) => {
           info.data.boss = -3;
           return await addItems(info, true);
         }
-        let firstEmpty = gameResult.bosses.findIndex((val) => val._id == -1);
+        let firstEmpty = gameResult.bosses.findIndex((val) => val == -1);
         if (firstEmpty != -1) {
-          gameResult.bosses[firstEmpty] = findBoss;
+          gameResult.bosses[firstEmpty] = info.data.boss;
           if (firstEmpty == gameResult.bosses.length - 1) {
             last = true;
           }
           if(findBoss.long){
             gameResult.longBoss[info.data.team - 1] = true;
           }
+        }
+        else{
+          // this should never trigger
+          console.log("An error occurred with finding bosses!");
+          // notify dev somehow
         }
         // if this timestamp doesnt exist, re-add it
         if(timestampInfo.find((val) => val.id == info.id) == undefined){
@@ -508,11 +501,17 @@ const addItems = async (info, inside = false) => {
         if (last) {
           if(gameResult.extrabans.length > 0){
             gameResult.result = "extraban";
+            if(gameResult.extrabanst1 == 0){
+              newTeam = -2;
+            }
+            else{
+              newTeam = -1;
+            }
           }
           else{
             gameResult.result = "ban";
+            newTeam = -1;
           }
-          newTeam = -1;
         } 
         // add new boss, save. and return a message
         newTeam < 0 ? gameResult.turn = -1 * newTeam : gameResult.turn = newTeam;
@@ -520,8 +519,10 @@ const addItems = async (info, inside = false) => {
         let returnInfo = JSON.stringify({
           message: "Success",
           type: "boss",
-          boss: info.data.boss,
           id: info.id,
+          boss: info.data.boss,
+          long: findBoss.long,
+          team: info.data.team,
           nextTeam: newTeam,
         });
         gameResult.log += returnInfo + "\n\n";
@@ -534,23 +535,25 @@ const addItems = async (info, inside = false) => {
           info.data.character = -2; // random ban means no ban
         }
         const charPick = await character.findById(info.data.character);
-        let status = await checkCharacterExists(info.id, charPick);
+        let status = checkCharacterExists(allPicks, info.data.character);
         if (
           charPick == null ||
           (status && info.data.character != -2 && info.data.character != -1)
         ) {
           info.data.character = -2;
-          return await addItems(info, true); // forces no ban
+          console.log("charpick was null");
+          // also sets the no ban if found already
+          return await addItems(info, true); // forces no ban in case of a bug
         }
         // first check if the character even exists
         let last = false; // for last team this is default
         let newTeam = 1;
         let firstEmpty = gameResult.extrabans.findIndex(
-          (val) => val._id == -1
+          (val) => val == -1
         );
         if (firstEmpty != -1) {
           charPick.chosen = true;
-          gameResult.extrabans[firstEmpty] = charPick;
+          gameResult.extrabans[firstEmpty] = info.data.character;
           if (firstEmpty == gameResult.extrabans.length - 1) {
             // check for last extra ban filled
             last = true;
@@ -559,7 +562,7 @@ const addItems = async (info, inside = false) => {
         const timerObj = timestampInfo.find((val) => val.id == info.id);
         timerObj.timestamp = PICK_TIMER; // reset timer
         if (!last) {
-          // find who is next
+          // find who is next - special loop exists because of the number of extra bans not being consistent
           let turnArr = [];
           for (
             let i = 0;
@@ -577,15 +580,15 @@ const addItems = async (info, inside = false) => {
           gameResult.turn = newTeam;
         } else {
           gameResult.result = "ban";
-          newTeam = -2;
+          newTeam = -1; 
           gameResult.turn = 1;
         }
         gameResult.processing = false;
         let returnInfo = JSON.stringify({
           message: "Success",
           type: "extraban",
-          extraban: info.data.character,
           id: info.id,
+          ban: info.data.character,
           nextTeam: newTeam,
         });
         gameResult.log += returnInfo + "\n\n";
@@ -598,58 +601,50 @@ const addItems = async (info, inside = false) => {
           info.data.character = -2; // random ban means no ban 
         }
         const charPick = await character.findById(info.data.character);
-        let status = await checkCharacterExists(info.id, charPick);
+        let status = checkCharacterExists(allPicks, info.data.character);
         if (charPick == null || (status && info.data.character != -2 && info.data.character != -1)){
           info.data.character = -2;
           return await addItems(info, true); // forces no ban
         }
         let last = 0;
-        let firstEmpty = gameResult.bans.findIndex(val => val._id == -1);
+        let firstEmpty = gameResult.bans.findIndex(val => val == -1);
         if(firstEmpty != -1){
           charPick.chosen = true;
-          gameResult.bans[firstEmpty] = charPick;
+          gameResult.bans[firstEmpty] = info.data.character;
           if (firstEmpty == gameResult.bans.length - 1) { // swaps to picks on 4th and 6th ban - this is 6th ban, should also work for 3 + 1
-            last = 1;
+            last = 2;
           }
           else if(firstEmpty == gameResult.bans.length - 3){ // 4th ban
-            last = 2;
+            last = 1;
           }
         }
         timestampInfo.find((val) => val.id == info.id).timestamp = PICK_TIMER; 
         // add new bans, save, return message
         let newTeam = 0;
-        switch(info.data.team){
-          case 1: 
-            newTeam = 2;
-            break;
-          case 2:
-            newTeam = 1;
-            break;
-          default:
-            let returnInfo = JSON.stringify({
-              message: "Failure",
-              errType: "Nonexistent",
-              error: "Please provide a valid team to select.",
-            });
-            gameResult.log += returnInfo + "\n\n";
-            await gameResult.save();
-            return returnInfo;
+        if(last == 0){
+          switch(info.data.team){
+            case 1: 
+              newTeam = 2;
+              break;
+            case 2:
+              newTeam = 1;
+              break;
+            default:
+              let returnInfo = JSON.stringify({
+                message: "Failure",
+                errType: "Nonexistent",
+                error: "Please provide a valid team to select.",
+              });
+              gameResult.log += returnInfo + "\n\n";
+              await gameResult.save();
+              return returnInfo;
+          }
+          gameResult.turn = newTeam;
         }
-        if (last != 0) {
+        else {
           newTeam = -1 * last;
-        }
-        switch(newTeam){
-          case -1:
-            gameResult.turn = 2;
-            gameResult.result = "pick";
-            break;
-          case -2:
-            gameResult.turn = 1;
-            gameResult.result = "pick";
-            break;
-          default:
-            gameResult.turn = newTeam;
-            break;
+          gameResult.result = "pick";
+          gameResult.turn = last;
         }
         gameResult.processing = false;
         let returnInfo = JSON.stringify({
@@ -657,37 +652,21 @@ const addItems = async (info, inside = false) => {
           type: "ban",
           ban: info.data.character,
           id: info.id,
+          team: info.data.team,
           nextTeam: newTeam,
         });
         gameResult.log += returnInfo + "\n\n";
         await gameResult.save();
         return returnInfo;
-      }
-            
+      }   
       case "pick": {
         // get character by index from character model and add it to the picks
         if (info.data.character == -3) {
           // choose a random pick
           // first find all picks and bans chosen
-          let infoIds = [];
-          for (let i = 0; i < Math.max(gameResult.bans.length, gameResult.pickst1.length); i++) {
-            if(i < gameResult.pickst1.length){
-              infoIds.push(gameResult.pickst1[i]._id);
-              infoIds.push(gameResult.pickst2[i]._id);
-            }
-            if(i < gameResult.bans.length){
-              infoIds.push(gameResult.bans[i]._id);
-            }
-            // account for extra bans too
-            if(i < gameResult.extrabans.length){
-              infoIds.push(gameResult.extrabans[i]._id);
-            }
-          }
-          infoIds = [...new Set(infoIds)];
-          let newestPick = await character.findOne().sort({ _id: -1 });
+          let infoIds = [...new Set(allPicks)];
+          let newestPick = await character.findOne().sort({_id: -1});
           newestPick = newestPick._id;
-          // find last id
-
           // generate random number
           let randomVal = -1;
           while (randomVal < 0 || infoIds.includes(randomVal)) {
@@ -698,7 +677,7 @@ const addItems = async (info, inside = false) => {
         const charPick = await character.findById(info.data.character);
         if (
           charPick == null ||
-          (await checkCharacterExists(info.id, charPick))
+          (checkCharacterExists(allPicks, info.data.character))
         ) {
           info.data.character = -3;
           return await addItems(info, true);
@@ -707,22 +686,18 @@ const addItems = async (info, inside = false) => {
         const swapt1 = [0, 2, 4, 5];
         const swapt2 = [1, 2, 3, 5];
         // find first empty pick
-        let ind = -1;
+        let ind = gameResult[`pickst${info.data.team}`].findIndex(val => val == -1);
+        if(ind == -1){
+          // this should never trigger but return an error anyways
+          console.log("An error occurred with finding picks!");
+        }
+        gameResult[`pickst${info.data.team}`][ind] = info.data.character;
         let newTeam = 0;
         if (info.data.team == 2) {
-          for (let i = 0; i < gameResult.pickst2.length; i++) {
-            if (gameResult.pickst2[i]._id == -1) {
-              ind = i;
-              charPick.chosen = true;
-              gameResult.pickst2[i] = charPick;
-              break;
-            }
-          }
           for (let i = 0; i < swapt2.length; i++) {
             if (ind == swapt2[i]) {
               // found a boundary for team 2 - now it is team 1's turn to pick
               if (i == 1) {
-                // bandage solution - third pick goes back to one more set of bans, where team 2 starts
                 newTeam = -2;
                 gameResult.result = "ban";
               } else {
@@ -736,14 +711,6 @@ const addItems = async (info, inside = false) => {
             newTeam = 2;
           }
         } else {
-          for (let i = 0; i < gameResult.pickst1.length; i++) {
-            if (gameResult.pickst1[i]._id == -1) {
-              ind = i;
-              charPick.chosen = true;
-              gameResult.pickst1[i] = charPick;
-              break;
-            }
-          }
           swapt1.forEach((val) => {
             if (ind == val) {
               newTeam = 2;
@@ -771,9 +738,7 @@ const addItems = async (info, inside = false) => {
         newTeam < 0
           ? (gameResult.turn = -1 * newTeam)
           : (gameResult.turn = 1 * newTeam);
-
         gameResult.processing = false;
-        // find the first index at which
         let returnInfo = JSON.stringify({
           message: "Success",
           type: "pick",
@@ -808,6 +773,7 @@ const addItems = async (info, inside = false) => {
   }
 }
 
+// not used atm
 const addTimes = async (info) => {
   // update the current times
   // info.data is in format of a three digit array: [team (1 or 2), boss number (0 to 6 or 8 depends on division), new time]
@@ -847,7 +813,6 @@ const addTimes = async (info) => {
       type: "times",
       time: info.data,
       id: info.id,
-      game: gameResult
     });
     gameResult.log += returnInfo + "\n\n";
     await gameResult.save();
@@ -868,64 +833,64 @@ const switchPhase = async (ID, phase) => {
     // change state - drafting (setup), playing (progress), game over (finish)
     // send this info back to everyone
   try{
-      let gameResult = await game.findById(ID);
-      if (gameResult == null) {
-        return JSON.stringify({
-          message: "Failure",
-          errType: "Nonexistent",
-          error: "The id is not valid for a current game.",
-        });
-      }
-      phase = phase.toLowerCase();
-      let cond = false;
-      const keywords = ["waiting","setup","boss", "ban", "pick", "progress","finish","1","2"]
-      keywords.forEach(word => {
-        if(word === phase){
-          cond = true;
-          if(phase == "1"){
-            phase = "Team 1 Wins"
-          }
-          else if(phase == "2"){
-            phase = "Team 2 Wins"
-          }
+    let gameResult = await game.findById(ID);
+    if (gameResult == null) {
+      return JSON.stringify({
+        message: "Failure",
+        errType: "Nonexistent",
+        error: "The id is not valid for a current game.",
+      });
+    }
+    phase = phase.toLowerCase();
+    let cond = false;
+    const keywords = ["waiting","setup","boss", "ban", "pick", "progress","finish","1","2"]
+    keywords.forEach(word => {
+      if(word === phase){
+        cond = true;
+        if(phase == "1"){
+          phase = "Team 1 Wins"
         }
-      })
-      if(!cond){
-        let returnInfo = JSON.stringify({
-          message: "Failure",
-          errType: "Phase",
-          error: "Please provide a valid phase.",
-        });
-        gameResult.log += returnInfo + "\n\n";
-        await gameResult.save();
-        return returnInfo;
-      }
-      gameResult.result = ""+phase;
-      // if change phase to boss, game started, so add timer
-      if(phase == "boss"){
-        console.log("added timer");
-        timestampInfo.push({
-          id: ID, 
-          timestamp: PICK_TIMER
-        });
-        // do i really need extraban / pick? meh, the frontend handles this too
-      }
-      else if(phase == "progress"){
-        const indexToRemove = timestampInfo.findIndex((val) => val.id == ID);
-        if(indexToRemove != -1){ // remove to prevent it from continuing to run
-          timestampInfo.splice(indexToRemove, 1);
-          messageMap.delete(info.id);
+        else if(phase == "2"){
+          phase = "Team 2 Wins"
         }
       }
+    })
+    if(!cond){
       let returnInfo = JSON.stringify({
-        message: "Success",
-        type: "phase",
-        newPhase: phase,
-        id: gameResult._id
+        message: "Failure",
+        errType: "Phase",
+        error: "Please provide a valid phase.",
       });
       gameResult.log += returnInfo + "\n\n";
       await gameResult.save();
       return returnInfo;
+    }
+    gameResult.result = ""+phase;
+    // if change phase to boss, game started, so add timer
+    if(phase == "boss"){
+      console.log("added timer");
+      timestampInfo.push({
+        id: ID, 
+        timestamp: PICK_TIMER
+      });
+      // do i really need extraban / pick? meh, the frontend handles this too
+    }
+    else if(phase == "progress"){
+      const indexToRemove = timestampInfo.findIndex((val) => val.id == ID);
+      if(indexToRemove != -1){ // remove to prevent it from continuing to run
+        timestampInfo.splice(indexToRemove, 1);
+        messageMap.delete(info.id);
+      }
+    }
+    let returnInfo = JSON.stringify({
+      message: "Success",
+      type: "phase",
+      newPhase: phase,
+      id: gameResult._id
+    });
+    gameResult.log += returnInfo + "\n\n";
+    await gameResult.save();
+    return returnInfo;
   }
   catch(err){
     console.log(err);
@@ -961,11 +926,9 @@ const handleDND = async(info) => {
   }
   else{
     let returnInfo = "";
-    let first = null;
-    let firstInd = 0;
-    let second = null;
-    let secondInd = 0;
     let whereInfo = "";
+    let firstInd = 0;
+    let secondInd = 0;
     switch (info.where) {
       case "boss":
         whereInfo = "bosses";
@@ -987,31 +950,35 @@ const handleDND = async(info) => {
         await gameResult.save();
         return returnInfo;
     }
-    for (let i = 0; i < gameResult[whereInfo].length; i++) {
-      if (gameResult[whereInfo][i]._id == info.values[0]) {
-        first = gameResult[whereInfo][i];
-        firstInd = i;
-      }
-      if (gameResult[whereInfo][i]._id == info.values[1]) {
-        second = gameResult[whereInfo][i];
-        secondInd = i;
-      }
+    firstInd = gameResult[whereInfo].indexOf(info.values[0]);
+    secondInd = gameResult[whereInfo].indexOf(info.values[1]);
+    if(firstInd == -1 || secondInd == -1){
+      returnInfo = JSON.stringify({
+        message: "Failure",
+        errType: "swap",
+        error: "Please choose valid characters / bosses to swap.",
+      });
+      gameResult.log += returnInfo + "\n\n";
+      await gameResult.save();
+      return returnInfo;
     }
-    gameResult[whereInfo][firstInd] = second;
-    gameResult[whereInfo][secondInd] = first;
+    let temp = gameResult[whereInfo][firstInd];
+    gameResult[whereInfo][firstInd] = gameResult[whereInfo][secondInd];
+    gameResult[whereInfo][secondInd] = temp;
     returnInfo = JSON.stringify({
       message: "Success",
       type: "DND",
       id: info.id,
-      where: info.where,
-      newResult: gameResult[whereInfo],
+      where: whereInfo,
+      first: firstInd,
+      second: secondInd
     });
     gameResult.log += returnInfo + "\n\n";
     await gameResult.save();
     return returnInfo;
   }
 }
-const findTurn = async(id, getSelectionInfo = false) => {
+const findTurn = async(id, getSelectionInfo = true) => {
   const gameResult = await game.findById(id);
   let returnInfo = "";
   if (gameResult == null) {
@@ -1045,7 +1012,7 @@ const findTurn = async(id, getSelectionInfo = false) => {
       paused: paused,
       requesterOnly: true,
     });
-  } else {
+  } else { // figure this out
     returnInfo = JSON.stringify({
       message: "Success",
       type: "turn",
@@ -1060,6 +1027,7 @@ const findTurn = async(id, getSelectionInfo = false) => {
   return returnInfo;
 }
 
+// not needed anymore
 const getInformation = async(query) => {
   if(query == "boss"){
     // find bosses
@@ -1125,11 +1093,9 @@ const overwrite = async(info) => {
   // instead of limiting to after draft, limit to paused game only aka must be paused
   const gameResult = await game.findById(info.id);
   let choice = info.which == "boss" ? "bosses" : info.which == "character" ? "pickst"+info.team : info.which == "ban" ? "bans" : "extrabans"
-  // find the info of the original pick
-  // find the info of the new pick
-  // make it ref only, but unconditional
-  // i.e. doesnt get checked
-  // need to check if info.replacement is a character name or is a number
+
+  // let the frontend process if it is a name or an index and if so then send it
+
   let res = undefined;
   // info.original is now an index pass
   if(info.which == "boss"){
@@ -1142,11 +1108,11 @@ const overwrite = async(info) => {
     return JSON.stringify({
       message: "Failure",
       errType: "Nonexistent",
-      error: "Please choose a boss or character that has been picked!",
+      error: "Please choose a boss or character that exists!",
     });
   }
   if(res != null){
-    gameResult[`${choice}`][info.original] = res; 
+    gameResult[`${choice}`][info.original] = info.replacement; 
     await gameResult.save();
   }
   else{
@@ -1161,7 +1127,8 @@ const overwrite = async(info) => {
     type: "overwrite",
     id: info.id,
     which: choice,
-    replacement: gameResult[`${choice}`]
+    original: info.original,
+    replacement: info.replacement
   });
   gameResult.log += returnInfo + "\n\n";
   await gameResult.save();
@@ -1218,6 +1185,8 @@ const updateTeamNames = async(info) => {
  * @param {*} info the json string parsed as data
  * This data includes player and team names, and pick orders.
  * team is either 1 or 2 always.
+ * this is not in use anymore
+ * @deprecated please use the drag and drop and clicking on player / team names instead.
  */
 const updateTeam = async(info) => {
   const gameResult = await game.findById(info.id);
@@ -1277,7 +1246,7 @@ const updateTeam = async(info) => {
   return returnInfo;
 }
 
-
+// not used anymore, if used again will properly update code
 const updateStatus = async (info) => {
   const gameResult = await game.findById(info.id);
   // console.log(gameResult);
@@ -1348,7 +1317,7 @@ const updateStatus = async (info) => {
   await gameResult.save();
   return returnInfo;
 };
-
+// not used atm
 const findAllIds = async(id) => {
   const gameResult = await game.findById(id);
   if(gameResult == null){
@@ -1362,13 +1331,13 @@ const findAllIds = async(id) => {
   let charIds = [];
   let length = gameResult.bosses.length > gameResult.pickst1.length ? gameResult.bosses.length : gameResult.pickst1.length;
   for(let i = 0; i < length; i++){ 
-    bossIds.push(gameResult.bosses[i]._id)
+    bossIds.push(gameResult.bosses[i])
     if(i < gameResult.bans.length){
-      charIds.push(gameResult.bans[i]._id);
+      charIds.push(gameResult.bans[i]);
     }
     if(i < gameResult.pickst1.length){
-      charIds.push(gameResult.pickst1[i]._id);
-      charIds.push(gameResult.pickst2[i]._id);
+      charIds.push(gameResult.pickst1[i]);
+      charIds.push(gameResult.pickst2[i]);
     }
   }
   bossIds = [...new Set(bossIds)];
@@ -1405,7 +1374,7 @@ const checkPause = (id) => {
 }
 /**
  * gets a game that will be paused (currently not paused)
- * @param {*} id 
+ * @param {number} id 
  * @returns 
  */
 const getPausedGame = (id) => {
@@ -1471,66 +1440,59 @@ const resumeGame = async(id) => {
   });
 }
 
+const findLatest = async(id) => {
+  let newestBoss = await boss.findOne().sort({_id: -1})._id;
+  let newestChar = await character.findOne().sort({_id: -1})._id;
+  return JSON.stringify({
+    message: "Success",
+    type: "latest",
+    id: id,
+    boss: newestBoss,
+    character: newestChar,
+    requesterOnly: true
+  });
+}
+
 const checkAmounts = (data, division, type) => {
-    // checks the number of bans / picks / bosses is valid, not too many - data is the array
-    if (type == "boss") {
-        if (division.toLowerCase() == "premiere") {
-          // 9 bossses, otherwise 7
-          return data.length <= 9
-        } else {
-            return data.length <= 7
-        } 
-    } else { 
-        return data.length <= 6
-    }
+  // checks the number of bans / picks / bosses is valid, not too many - data is the array
+  if (type == "boss") {
+    if (division.toLowerCase() == "premiere") {
+      // 9 bossses, otherwise 7
+      return data.length <= 9
+    } else {
+        return data.length <= 7
+    } 
+  } else { 
+      return data.length <= 6
+  }
     
 }
 
 /**
  * Checks if the target boss (information in the value section) has been selected in the current game.
- * @param {Number} ID the game ID
- * @param {Boolean} long if the boss is a long boss or not
- * @param {Number} team the team that chose this boss
- * @param {String} boss the name of the boss
+ * @param bosses the list of bosses present currently
+ * @param {boolean} long if the team has chosen a long boss or not
+ * @param {number} index the id of the boss
+ * @param {boolean} longBoss if the boss is a long boss or not
  * @returns true if the character is found, false if not
  */
-const checkExists = async (ID, long, team, boss) => {
-  // check for premier or not
-  // query the game for the corresponding item
-  let gameResult = await game.findById(ID);
-  let check = gameResult.get("bosses");
-  // convert to strings and see if one includes the other
-  check = JSON.stringify(check);
-  if(check.includes('"long":true')){ // checks current bosses and long boss, but does not check if the boss is actually long
-    // console.log("long found"); // just to check program can detect a long boss being chosen
-    if (gameResult.longBoss[team - 1] && long) {
-      return true;
-    } // prevent a second long boss from being chosen
-  }
-  if(check.includes(boss)){
-    // console.log("general found");
+const checkExists = (bosses, long, bossId, longBoss) => {
+  if(long && longBoss){
     return true;
   }
-  // console.log("general not found");
+  if(bosses.includes(bossId)){
+    return true;
+  }
   return false;
 }
 /**
  * Checks if the target character (information in the value section) has been banned or picked in the current game.
- * @param {Number} ID the game ID
- * @param {Object} value the JSON string of the character you are checking
+ * @param {number[]} characters the list of characters currently in the match across extra bans, picks, and bans
+ * @param {number} id the id of the character to be checked
  * @returns true if the character is found, false if not
  */
-const checkCharacterExists = async(ID, value) => {
-  if(value == null){
-    return true; // not because it exists, but instead because it should throw an error
-  }
-  let gameResult = await game.findById(ID);
-  let t1 = JSON.stringify(gameResult.get("pickst1"));
-  let t2 = JSON.stringify(gameResult.get("pickst2"));
-  let bans = JSON.stringify(gameResult.get("bans"));
-  let extrabans = JSON.stringify(gameResult.get("extrabans"));
-  let total = t1 + t2 + bans + extrabans;
-  if (total.includes(value.name)) {
+const checkCharacterExists = (characters, id) => {
+  if (characters.includes(id)) {
     return true;
   } else {
     return false;
