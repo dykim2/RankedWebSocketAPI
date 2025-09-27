@@ -441,7 +441,6 @@ const addItems = async (info, inside = false) => {
         */
         let last = false; // verify boss count
         const findBoss = await boss.findById(info.data.boss);
-        console.log("test test test test");
         if (
           findBoss == null || findBoss == undefined || checkExists(gameResult.bosses, gameResult.longBoss[info.data.team - 1], info.data.boss, findBoss.long)
         ) {
@@ -499,19 +498,8 @@ const addItems = async (info, inside = false) => {
             return returnInfo;
         }
         if (last) {
-          if(gameResult.extrabans.length > 0){
-            gameResult.result = "extraban";
-            if(gameResult.extrabanst1 == 0){
-              newTeam = -2;
-            }
-            else{
-              newTeam = -1;
-            }
-          }
-          else{
-            gameResult.result = "ban";
-            newTeam = -1;
-          }
+          gameResult.result = "ban";
+          newTeam = -1;
         } 
         // add new boss, save. and return a message
         newTeam < 0 ? gameResult.turn = -1 * newTeam : gameResult.turn = newTeam;
@@ -579,7 +567,7 @@ const addItems = async (info, inside = false) => {
           newTeam = turnArr[firstEmpty + 1]; // calculates next team
           gameResult.turn = newTeam;
         } else {
-          gameResult.result = "ban";
+          gameResult.result = "boss";
           newTeam = -1; 
           gameResult.turn = 1;
         }
@@ -669,7 +657,9 @@ const addItems = async (info, inside = false) => {
           newestPick = newestPick._id;
           // generate random number
           let randomVal = -1;
-          while (randomVal < 0 || infoIds.includes(randomVal)) {
+          // TODO when flins releases remove 103
+          // i used to have a reconnection algorithm... i forgot how but i think i need to re-add it 
+          while (randomVal < 0 || infoIds.includes(randomVal) || randomVal == 103) {
             randomVal = Math.floor(Math.random() * (newestPick + 1));
           }
           info.data.character = randomVal;
@@ -830,8 +820,8 @@ const addTimes = async (info) => {
   }
 }
 const switchPhase = async (ID, phase) => { 
-    // change state - drafting (setup), playing (progress), game over (finish)
-    // send this info back to everyone
+  // change state - drafting (setup), playing (progress), game over (finish)
+  // send this info back to everyone
   try{
     let gameResult = await game.findById(ID);
     if (gameResult == null) {
@@ -843,7 +833,7 @@ const switchPhase = async (ID, phase) => {
     }
     phase = phase.toLowerCase();
     let cond = false;
-    const keywords = ["waiting","setup","boss", "ban", "pick", "progress","finish","1","2"]
+    const keywords = ["waiting", "setup", "boss", "extraban", "ban", "pick", "progress", "finish", "1", "2"]
     keywords.forEach(word => {
       if(word === phase){
         cond = true;
@@ -867,13 +857,16 @@ const switchPhase = async (ID, phase) => {
     }
     gameResult.result = ""+phase;
     // if change phase to boss, game started, so add timer
-    if(phase == "boss"){
+    if((phase == "boss" && gameResult.extrabans.length == 0) || (gameResult.extrabans.length > 0 && phase == "extraban")){
       console.log("added timer");
       timestampInfo.push({
         id: ID, 
         timestamp: PICK_TIMER
       });
-      // do i really need extraban / pick? meh, the frontend handles this too
+      if(gameResult.extrabans.length > 0 && phase == "extraban"){
+        console.log("whose turn");
+        gameResult.turn = gameResult.extrabanst1 > 0 ? 1 : 2; // if t1 has extra bans, they go first, else t2 goes first
+      }
     }
     else if(phase == "progress"){
       const indexToRemove = timestampInfo.findIndex((val) => val.id == ID);
@@ -902,7 +895,6 @@ const switchPhase = async (ID, phase) => {
       error: errVal,
     });
   }
-    
 }
 const handleDND = async(info) => {
   let gameResult = await game.findById(info.id);
