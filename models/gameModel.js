@@ -28,8 +28,13 @@ const gameSchema = mongoose.Schema(
       type: String,
       default: "Standard",
     },
+    doBossBans: {
+      // do boss bans or not?
+      type: Boolean,
+      default: false,
+    },
     extrabans: {
-      type: [Number], // i think honestly replace schemas with numbers - save 
+      type: [Number], // i think honestly replace schemas with numbers - save
       default: [], // extra bans go in order, depending on the number of extra bans a team gets, max 3
     },
     extrabanst1: {
@@ -52,6 +57,10 @@ const gameSchema = mongoose.Schema(
       type: [Number],
       default: [-1, -1], // whatever pick is currently being hovered; an attempt to make the website backend decide on the pick when time runs out
       // needs to be unique per team, otherwise one team's hover will mess with the other team's hover
+    },
+    presetBossCount: {
+      type: Number,
+      default: 1,
     },
     log: {
       type: String,
@@ -77,10 +86,6 @@ const gameSchema = mongoose.Schema(
       type: [String],
       default: ["p21", "p22", "p23"],
     },
-    processing: {
-      type: Boolean,
-      default: false,
-    },
     result: {
       type: String,
       default: "waiting", // can be "waiting, setup", "progress", and "finish", or a winning team (1 or 2, in format of a string)
@@ -92,6 +97,14 @@ const gameSchema = mongoose.Schema(
     team2: {
       type: String,
       default: "team 2",
+    },
+    totalTimeT1: {
+      type: Number,
+      default: 455,
+    },
+    totalTimeT2: {
+      type: Number,
+      default: 455,
     },
     turn: {
       type: Number,
