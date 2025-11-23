@@ -12,185 +12,188 @@ const mongoose = require("mongoose");
 const character = require("./models/characterModel.js")
 const boss = require("./models/bossModel.js");
 const game = require('./models/gameModel.js');
-const PICK_TIMER = 35; // 35 seconds for players to make a pick
+const PICK_TIMER = 455; // 48 - 480 seconds for players to make a pick
+// if timer runs out everything becomes random
 let interval = null;
 
 let timestampInfo = []; // array of game ids with timestamps
 let pausedInfo = []; // paused game info - game timestamp info here is saved and is not changed
 // format is as follows
-const connections = new Map();
 const messageMap = new Map();
+let newestCharacter = 0;
+let newestBoss = 0;
 /*
   {
     "id": id,
-    "timestamp": timestamp
+    "timestampt1": timestampt1,
+    "timestampt2": timestampt2,
+    "turn": 1 | 2
 ` }
 */
 
 try{
-    wss.on('connection', function connection(ws, req) {
-        startInterval();
-        // send query param with random uuid
-        const url = new URL(req.url, `http://${req.headers.host}`);
-        const userId = url.searchParams.get("userId");
-        if(!connections.has(userId)){
-          connections.set(userId, ws);
+  wss.on('connection', function connection(ws, req) {
+    startInterval();
+    console.log("Total clients:", wss.clients.size);
+    // check for latest character
+    ws.on('message', async function incoming(message){
+        const jsonStr = JSON.parse(message);
+        console.log(jsonStr);
+        const gameResult = await game.findById(jsonStr.id);
+        // console.log(jsonStr);
+        if (gameResult != null) {
+          gameResult.log += message + " \n\n ";
         }
-        else{
-          console.log("duplicate connection located!");
+        switch(jsonStr.type){
+          case "character":
+          case "boss":
+          case "add":
+            const currTime = Date.now();
+            if(messageMap.has(jsonStr.id)){
+              // to make sure double clicks arent triggered, check that each request was at least 1.5s apart (gifs playing should mean this is never accidentally triggered)
+              const lastTime = messageMap.get(jsonStr.id);
+              if(currTime - lastTime < 1500){
+                ws.send(JSON.stringify({
+                  message: "Failure",
+                  errType: "Multiclick",
+                  error: "Clicking too fast!",
+                }));
+                return;
+              }
+              else{
+                messageMap.set(jsonStr.id, currTime);
+              }
+            }
+            else{
+              messageMap.set(jsonStr.id, currTime);
+            }
+            break;
         }
-        console.log("Total clients:", wss.clients.size);
-        ws.on('message', async function incoming(message){
-            // could send JSON data and sort it
-            const jsonStr = JSON.parse(message);
-            const gameResult = await game.findById(jsonStr.id);
-            
-            if (gameResult != null) {
-              gameResult.log += message + " \n\n ";
+        // calling options: 
+        let result = ""; // should be a JSON string
+        switch(jsonStr.type){
+          case "get":
+              result = await getGame(jsonStr.id, false);
+              break;
+          case "refresh": 
+              result = await getGame(jsonStr.id, true); // difference is this method probably wont return times
+              break;
+          case "hover":
+              result = await addHover(jsonStr);
+              break;
+          case "character":
+              result = await addCharacter(jsonStr);
+              break;
+          case "boss": 
+              result = await addBoss(jsonStr);
+              break;
+          case "add":
+              result = await addItems(jsonStr, false);
+              break;
+          case "times":
+              result = await addTimes(jsonStr);
+              break;
+          case "switch":
+              result = await switchPhase(jsonStr.id, jsonStr.phase);
+              break;
+          case "dnd":
+              result = await handleDND(jsonStr);
+              break;
+          case "turn":
+              result = await findTurn(jsonStr.id, jsonStr.getSelectionInfo);
+              break; 
+          case "find":
+              result = await getInformation(jsonStr.query);
+              break; 
+          case "status":
+              result = await updateStatus(jsonStr);
+              break;
+          case "players":
+              result = await checkPlayers(jsonStr.id);
+              break;
+          case "overwrite":
+              result = await overwrite(jsonStr);
+              break;
+          case "names":
+              result = await updateNames(jsonStr);
+              break;
+          case "teamname":
+              result = await updateTeamNames(jsonStr);
+              break;
+          case "ids":
+              result = await findAllIds(id);
+              break;
+          case "pause":
+              result = await pauseGame(jsonStr.id);
+              break;
+          case "resume": 
+              result = await resumeGame(jsonStr.id);
+              break;
+          case "latest":
+              result = await findLatest(jsonStr.id);
+              break;
+          default:
+              result = JSON.stringify({message: "Failure", errType: "Nonexistent", error: "Please enter a valid selection."});
+              break;
+            // add a few extra options
+        }
+        
+        if (messageMap.has(jsonStr.id)) {
+          messageMap.delete(jsonStr.id);
+        }
+        // ws.send("message obtained: " + message); 
+        // console.log("-----------------")
+        // console.log(result);
+        
+        let resCopy = JSON.parse(result);
+        if(resCopy.message == "Failure" || resCopy.requesterOnly){
+          ws.send(result); // send only back to the user
+        }
+        else{ // on a character selection, user switch, pick add, etc, etc. send to every client including the picker
+          // console.log("send to client in general");
+          // console.log(result);
+          wss.clients.forEach(function each(client) {
+            // send data back to all connected clients
+            if (client.readyState === WebSocket.OPEN) {
+              // client !== ws &&
+              client.send(result);
             }
-            console.log(jsonStr);
-            switch(jsonStr.type){
-              case "character":
-              case "boss":
-              case "add":
-                const currTime = Date.now();
-                if(messageMap.has(jsonStr.id)){
-                  // to make sure double clicks arent triggered, check that each request was at least 1.5s apart (gifs playing should mean this is never accidentally triggered)
-                  const lastTime = messageMap.get(jsonStr.id);
-                  if(currTime - lastTime < 1500){
-                    ws.send(JSON.stringify({
-                      message: "Failure",
-                      errType: "Multiclick",
-                      error: "Clicking too fast!",
-                    }));
-                    return;
-                  }
-                  else{
-                    messageMap.set(jsonStr.id, currTime);
-                  }
-                }
-                else{
-                  messageMap.set(jsonStr.id, currTime);
-                }
-                if (gameResult.processing) {
-                  // add to logs, then proceed to do nothing
-                  gameResult.log += "\n\ncurrently logging, waiting\n\n";
-                  gameResult.save();
-                  // send nothing back
-                  return;
-                }
-                break;
-            }
-            // calling options: 
-            let result = ""; // should be a JSON string
-            switch(jsonStr.type){
-              case "get":
-                  result = await getGame(jsonStr.id);
-                  break;
-              case "hover":
-                  result = await addHover(jsonStr);
-                  break;
-              case "character":
-                  result = await addCharacter(jsonStr);
-                  break;
-              case "boss": 
-                  result = await addBoss(jsonStr);
-                  break;
-              case "add":
-                  result = await addItems(jsonStr, false);
-                  break;
-              case "times":
-                  result = await addTimes(jsonStr);
-                  break;
-              case "switch":
-                  result = await switchPhase(jsonStr.id, jsonStr.phase);
-                  break;
-              case "dnd":
-                  result = await handleDND(jsonStr);
-                  break;
-              case "turn":
-                  result = await findTurn(jsonStr.id, jsonStr.getSelectionInfo);
-                  break; 
-              case "find":
-                  result = await getInformation(jsonStr.query);
-                  break; 
-              case "status":
-                  result = await updateStatus(jsonStr);
-                  break;
-              case "players":
-                  result = await checkPlayers(jsonStr.id);
-                  break;
-              case "team":
-                  result = await updateTeam(jsonStr);
-                  break;
-              case "overwrite":
-                  result = await overwrite(jsonStr);
-                  break;
-              case "names":
-                  result = await updateNames(jsonStr);
-                  break;
-              case "teamname":
-                  result = await updateTeamNames(jsonStr);
-                  break;
-              case "ids":
-                  result = await findAllIds(id);
-                  break;
-              case "pause":
-                  result = await pauseGame(jsonStr.id);
-                  break;
-              case "resume": 
-                  result = await resumeGame(jsonStr.id);
-                  break;
-              default:
-                  result = JSON.stringify({message: "Failure", errType: "Nonexistent", error: "Please enter a valid selection."});
-                  break;
-                // add a few extra options
-            }
-            // ws.send("message obtained: " + message); 
-            // console.log("-----------------")
-            // console.log(result);
-            
-            let resCopy = JSON.parse(result);
-            if(resCopy.message == "Failure" || resCopy.requesterOnly){
-              ws.send(result); // send only back to the user
-            }
-            else{ // on a character selection, user switch, pick add, etc, etc. send to every client including the picker
-              // console.log("send to client in general");
-              // console.log(result);
-              wss.clients.forEach(function each(client) {
-                // send data back to all connected clients
-                if (client.readyState === WebSocket.OPEN) {
-                  // client !== ws &&
-                  client.send(result);
-                }
-              });
-            }
-        });
-        ws.on('error', err => {
-            let errVal = development == "development" ? err.toString() : "An error occurred"
-            ws.send(JSON.stringify({
-              message: "Failure",
-              errType: "server",
-              error: errVal,
-            }));
-            return;
-        })
-        // send timer here
-        ws.on('close', () => {
-          console.log("client dc");
-          connections.delete(userId)
-        })
+          });
+        }
+    });
+    ws.on('error', err => {
+      let errVal = development == "development" ? err.toString() : "An error occurred"
+      ws.send(JSON.stringify({
+        message: "Failure",
+        errType: "server",
+        error: errVal,
+      }));
+      return;
     })
+    // send timer here
+    ws.on('close', () => {
+      console.log("client dc");
+    })
+  })
 }
 catch(err){
   console.log(err);
 }
 mongoose
   .connect(MONGO_URL)
+  .then(() => {
+    character.findOne().sort({_id: -1}).then((doc => {
+      newestCharacter = doc._id;
+      console.log("update character");
+    }));
+    boss.findOne().sort({_id: -1}).then((doc => {
+      newestBoss = doc._id;
+      console.log("update boss");
+    }));
+  })
   .catch((err) => {
     console.log(err);
   });
-
 
 const startInterval = () => {
   if(interval){
@@ -202,51 +205,52 @@ const startInterval = () => {
 
     Object.entries(timestampInfo).forEach(async ([gameID, value]) => {
       // check if the time is greater than 0, set to PICK_TIMER by default
-      if (value.timestamp >= 0) {
-        value.timestamp -= 1;
+      if (value[`timestampt${value.turn}`] >= 0) {
+        value[`timestampt${value.turn}`] -= 1; // change this to represent each individual timestamp
       } else {
         // if time is up, run a function that essentially randoms the pick and resets the timer
         // first checks for hover
-
         let gameResult = await game.findById(value.id);
         let hovered = -3;
         if(gameResult != null){
           if (gameResult.hovered[gameResult.turn - 1] != -1) {
             hovered = gameResult.hovered[gameResult.turn - 1];
           }
-          // change newInfo accordingly
-          let newInfo = {
-            id: value.id,
-            type: "add",
-            changed: gameResult.result,
-            data: {
-              boss: hovered,
-              ban: hovered,
-              character: hovered,
-              team: gameResult.turn,
-            },
-          };
-          value.timestamp = PICK_TIMER;
-          let hoverResult = await addItems(newInfo, false);
-          gameResult.log += hoverResult + "\n(hover result)\n";
-          gameResult.processing = false;
-          await gameResult.save();
-          // make sure to remove at the end
-          //
-          // let thisResult = await addItems(newInfo);
-          // send the result to all clients
+          if(!messageMap.has(value.id)){
+            // change newInfo accordingly
+            let newInfo = {
+              id: value.id,
+              type: "add",
+              changed: gameResult.result,
+              data: {
+                boss: hovered,
+                ban: hovered,
+                character: hovered,
+                team: gameResult.turn,
+              },
+            };
+            value[`timestampt${value.turn}`] = 6; // if timer really goes to 0, take hover and then set timer to 6s, barely enough to let the gifs play out
+            // pause timer?
+            let hoverResult = await addItems(newInfo, false);
+            gameResult.log += hoverResult + "\n(hover result above)\n\n";
+            await gameResult.save();
+            // make sure to remove at the end
+            //
+            // let thisResult = await addItems(newInfo);
+            // send the result to all clients
 
-          console.log("send to client on hover");
-          console.log(hoverResult);
-          wss.clients.forEach(function each(client) {
-            // send data back to all connected clients
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(hoverResult);
-              // this is successful so far
-              // next, grab phase from game info
-              // send to additem
-            }
-          });
+            console.log("send to client on hover");
+            console.log(hoverResult);
+            wss.clients.forEach(function each(client) {
+              // send data back to all connected clients
+              if (client.readyState === WebSocket.OPEN) {
+                client.send(hoverResult);
+                // this is successful so far
+                // next, grab phase from game info
+                // send to additem
+              }
+            });
+          }
         }
       }
       // return the values whenever a connection is made from a client
@@ -263,46 +267,47 @@ const stopInterval = () => {
 }
 // next goal: bug fix + 3rd ban
 
-const getGame = async(data) => {
-    const res = await game.findById(data).lean();
-    let ind = 0;
-    if(res == null){
-      let errVal =
-        development == "development" ? "Game not found" : "An error occurred";
-      return JSON.stringify({
-        message: "Failure",
-        errType: "query",
-        error: errVal,
-      });
+const getGame = async(data, isRefresh) => {
+  const res = await game.findById(data).lean();
+  let ind = 0;
+  if(res == null){
+    let errVal =
+      development == "development" ? "Game not found" : "An error occurred";
+    return JSON.stringify({
+      message: "Failure",
+      errType: "query",
+      error: errVal,
+    });
+  }
+  else{
+    // check if game is in timestampinfo or pausedinfo
+    ind = getResumedGame(data); // is it a game that can be resumed?
+    let paused = false;
+    if(ind != -1){
+      paused = true;
     }
     else{
-      // check if game is in timestampinfo or pausedinfo
-      ind = getResumedGame(data); // is it a game that can be resumed?
-      let paused = false;
-      if(ind != -1){
-        paused = true;
-        ind = ind.timestamp;
+      ind = getPausedGame(data);
+      if(ind == -1){
+        // not started game, safe to send default game timer
       }
-      else{
-        ind = getPausedGame(data);
-        if(ind != -1){
-          // throw an error
-          ind = ind.timestamp; 
-        }
-      }
-      // pass this time on to a game on refresh game info, but subtract 1 second or do what the get time does
-      return JSON.stringify({
-        message: "Success",
-        type: "get",
-        game: res,
-        id: res._id,
-        paused: paused,
-        time: ind,
-        requesterOnly: true
-      });
     }
+    console.log("ind");
+    console.log(ind);
+    // if game doesnt exist, preset times to -1 and then game will auto fill with default time
+    // pass this time on to a game on refresh game info, but subtract 1 second or do what the get time does
+    return JSON.stringify({
+      message: "Success",
+      type: isRefresh ? "refresh" : "get",
+      game: res,
+      id: res._id,
+      paused: paused,
+      timert1: isRefresh ? undefined : ind.timestampt1 ?? res.totalTimeT1 ?? PICK_TIMER,
+      timert2: isRefresh ? undefined : ind.timestampt2 ?? res.totalTimeT2 ?? PICK_TIMER,
+      requesterOnly: true
+    });
+  }
 }
-
 
 const addHover = async(info) => {
   // essentially sets the hovered charaacter for when the time runs out
@@ -363,22 +368,11 @@ const addCharacter = async(info) => {
  * @param inside whether this is called inside itself or by an outside function
  * @return a JSON string that contains the result of this add operation
  */
-const addItems = async (info, inside = false) => {
+const addItems = async (info) => {
   // add information
   // change bosses, character picks
   try{
     const gameResult = await game.findById(info.id);
-    if(gameResult.processing && !inside){
-      return JSON.stringify({
-        message: "Failure",
-        type: "process",
-        error: "Currently processing, please hold!"
-      });
-    }
-    else if(!inside){
-      gameResult.processing = true;
-      await gameResult.save();
-    } // if already inside do nothing
     // verify turn is valid
     if(gameResult.turn != info.data.team){
       return JSON.stringify({
@@ -388,35 +382,65 @@ const addItems = async (info, inside = false) => {
       });
       // info.data.team = gameResult.turn;
     }
-    // console.log(gameResult);
+    let allPicks = []; // used to find matches for characters chosen
+    allPicks = allPicks.concat(gameResult.bans, gameResult.extrabans, gameResult.pickst1, gameResult.pickst2);
     switch (info.changed) {
+      case "bossban": {
+        // handle boss bans here, these go before normal bans
+        if (info.data.boss == -3) {
+          info.data.boss = -2;
+        }
+        // allow players to ban bosses already banned in fearless, its still a no ban
+        if (
+          gameResult.bossBans.includes(info.data.boss) && info.data.boss >= 0  || info.data.boss > newestBoss
+        ) {
+          // no boss ban
+          info.data.boss = -2;
+        }
+        let firstEmpty = gameResult.bossBans.findIndex((val) => val == -1);
+        let last = false;
+        if (firstEmpty != -1) {
+          gameResult.bossBans[firstEmpty] = info.data.boss;
+          if (firstEmpty == gameResult.bossBans.length - 1) {
+            last = true;
+          }
+        }
+        if (last) {
+          newTeam = -1;
+          gameResult.result = "boss";
+          gameResult.turn = 1;
+        } else {
+          newTeam = info.data.team == 1 ? 2 : 1;
+          gameResult.turn = newTeam;
+        }
+        adjustGameTimer(info.id, info.data.team, newTeam);
+        let returnInfo = JSON.stringify({
+          message: "Success",
+          type: "bossban",
+          ban: info.data.boss,
+          id: info.id,
+          team: info.data.team,
+          nextTeam: newTeam,
+        });
+        gameResult.log += returnInfo + "\n\n";
+        await gameResult.save();
+        return returnInfo;
+      }
       case "boss": {
         if(info.data.boss == -3){
           // choose a random boss
           // first find all bosses chosen
-          let bossIds = [];
-          for(let i = 0; i < gameResult.bosses.length; i++){
-            bossIds.push(gameResult.bosses[i]._id);
-          } 
-          let newestBoss = await boss.findOne().sort({ _id: -1 });
-          newestBoss = newestBoss._id;
-          // find last id
-          // generate random number
+          let bossIds = [...gameResult.bosses];
+          if(gameResult.doBossBans){
+            bossIds = bossIds.concat(gameResult.bossBans);
+          }
+          // find last id and generate random number
           let randomVal = -1; 
           let valid = true;
-          while(randomVal < 0 || bossIds.includes(randomVal) || valid == false){
+          // boss randomizer
+          while(randomVal < 0 || bossIds.includes(randomVal) || gameResult.bossBans.includes(randomVal) || valid == false){
             randomVal = Math.floor(Math.random() * (newestBoss + 1));
-            // console.log("random: "+randomVal)
-            /*
-            if(randomVal == 4){
-              // since oceanid was removed - still needs to be tested
-              valid = false;
-              continue;
-            }
-                // instead deciding to just manually adjust the ids of every boss again
-            */
-            let newInfo = await boss.findById(randomVal);
-            // console.log("type: "+newInfo.type)
+            let newInfo = await boss.findById(randomVal); // bottleneck????
             if (gameResult.fearless) {
               if (gameResult.fearlessBosses.includes(randomVal)) {
                 valid = false;
@@ -424,11 +448,9 @@ const addItems = async (info, inside = false) => {
             }
             if((newInfo.type == "legend" && gameResult.division != "premier") || (newInfo.type == "weekly" && gameResult.division == "open")){
               valid = false;
-              // console.log("fail - division")
             }
             else if (gameResult.longBoss[info.data.team - 1] && newInfo.long == true) {
               valid = false;
-              // console.log("fail - long")
             } else {
               valid = true;
             }
@@ -442,7 +464,6 @@ const addItems = async (info, inside = false) => {
             return await addItems(info, true);
           }
         }
-        let findBoss = await boss.findById(info.data.boss); // id of boss
         /*
         return JSON.stringify({
           message: "Success",
@@ -453,9 +474,9 @@ const addItems = async (info, inside = false) => {
         })
         */
         let last = false; // verify boss count
+        const findBoss = await boss.findById(info.data.boss);
         if (
-          findBoss == null ||
-          (await checkExists(info.id, findBoss.long, info.data.team, findBoss.boss)) 
+          findBoss == null || findBoss == undefined || checkExists(gameResult.bosses, gameResult.longBoss[info.data.team - 1], info.data.boss, findBoss.long)
         ) {
           // instead of forcing an error, randomize it, mainly for the case of hovering
           info.data.boss = -3;
@@ -467,9 +488,10 @@ const addItems = async (info, inside = false) => {
           info.data.boss = -3;
           return await addItems(info, true);
         }
-        let firstEmpty = gameResult.bosses.findIndex((val) => val._id == -1);
+
+        let firstEmpty = gameResult.bosses.findIndex((val) => val == -1);
         if (firstEmpty != -1) {
-          gameResult.bosses[firstEmpty] = findBoss;
+          gameResult.bosses[firstEmpty] = info.data.boss;
           if (firstEmpty == gameResult.bosses.length - 1) {
             last = true;
           }
@@ -477,16 +499,12 @@ const addItems = async (info, inside = false) => {
             gameResult.longBoss[info.data.team - 1] = true;
           }
         }
-        // if this timestamp doesnt exist, re-add it
-        if(timestampInfo.find((val) => val.id == info.id) == undefined){
-          timestampInfo.push({
-            id: info.id,
-            timestamp: PICK_TIMER,
-          });
-        }
         else{
-          timestampInfo.find((val) => val.id == info.id).timestamp = PICK_TIMER; 
+          // this should never trigger
+          console.log("An error occurred with finding bosses!");
+          // notify dev somehow
         }
+        
         let newTeam = 0; // switch teams
         switch (info.data.team) {
           case 1:
@@ -506,22 +524,19 @@ const addItems = async (info, inside = false) => {
             return returnInfo;
         }
         if (last) {
-          if(gameResult.extrabans.length > 0){
-            gameResult.result = "extraban";
-          }
-          else{
-            gameResult.result = "ban";
-          }
+          gameResult.result = "ban";
           newTeam = -1;
         } 
         // add new boss, save. and return a message
+        adjustGameTimer(info.id, info.data.team, newTeam);
         newTeam < 0 ? gameResult.turn = -1 * newTeam : gameResult.turn = newTeam;
-        gameResult.processing = false;
         let returnInfo = JSON.stringify({
           message: "Success",
           type: "boss",
-          boss: info.data.boss,
           id: info.id,
+          boss: info.data.boss,
+          long: findBoss.long,
+          team: info.data.team,
           nextTeam: newTeam,
         });
         gameResult.log += returnInfo + "\n\n";
@@ -534,32 +549,33 @@ const addItems = async (info, inside = false) => {
           info.data.character = -2; // random ban means no ban
         }
         const charPick = await character.findById(info.data.character);
-        let status = await checkCharacterExists(info.id, charPick);
+        let status = checkCharacterExists(allPicks, info.data.character);
         if (
           charPick == null ||
           (status && info.data.character != -2 && info.data.character != -1)
         ) {
           info.data.character = -2;
-          return await addItems(info, true); // forces no ban
+          console.log("charpick was null");
+          // also sets the no ban if found already
+          return await addItems(info, true); // forces no ban in case of a bug
         }
         // first check if the character even exists
         let last = false; // for last team this is default
         let newTeam = 1;
         let firstEmpty = gameResult.extrabans.findIndex(
-          (val) => val._id == -1
+          (val) => val == -1
         );
         if (firstEmpty != -1) {
           charPick.chosen = true;
-          gameResult.extrabans[firstEmpty] = charPick;
+          gameResult.extrabans[firstEmpty] = info.data.character;
           if (firstEmpty == gameResult.extrabans.length - 1) {
             // check for last extra ban filled
             last = true;
           }
         }
-        const timerObj = timestampInfo.find((val) => val.id == info.id);
-        timerObj.timestamp = PICK_TIMER; // reset timer
+
         if (!last) {
-          // find who is next
+          // find who is next - special loop exists because of the number of extra bans not being consistent
           let turnArr = [];
           for (
             let i = 0;
@@ -576,16 +592,17 @@ const addItems = async (info, inside = false) => {
           newTeam = turnArr[firstEmpty + 1]; // calculates next team
           gameResult.turn = newTeam;
         } else {
-          gameResult.result = "ban";
-          newTeam = -2;
+          gameResult.result = gameResult.doBossBans ? "bossban" : "boss";
+          newTeam = -1; 
           gameResult.turn = 1;
         }
-        gameResult.processing = false;
+        adjustGameTimer(info.id, info.data.team, newTeam);
         let returnInfo = JSON.stringify({
           message: "Success",
           type: "extraban",
-          extraban: info.data.character,
           id: info.id,
+          ban: info.data.character,
+          team: info.data.team,
           nextTeam: newTeam,
         });
         gameResult.log += returnInfo + "\n\n";
@@ -597,108 +614,72 @@ const addItems = async (info, inside = false) => {
         if (info.data.character == -3) {
           info.data.character = -2; // random ban means no ban 
         }
-        const charPick = await character.findById(info.data.character);
-        let status = await checkCharacterExists(info.id, charPick);
-        if (charPick == null || (status && info.data.character != -2 && info.data.character != -1)){
+        let status = checkCharacterExists(allPicks, info.data.character);
+        if (status && info.data.character != -2 && info.data.character != -1){
           info.data.character = -2;
           return await addItems(info, true); // forces no ban
         }
         let last = 0;
-        let firstEmpty = gameResult.bans.findIndex(val => val._id == -1);
+        let firstEmpty = gameResult.bans.findIndex(val => val == -1);
         if(firstEmpty != -1){
-          charPick.chosen = true;
-          gameResult.bans[firstEmpty] = charPick;
+          gameResult.bans[firstEmpty] = info.data.character;
           if (firstEmpty == gameResult.bans.length - 1) { // swaps to picks on 4th and 6th ban - this is 6th ban, should also work for 3 + 1
-            last = 1;
-          }
-          else if(firstEmpty == gameResult.bans.length - 3){ // 4th ban
             last = 2;
           }
+          else if(firstEmpty == gameResult.bans.length - 3){ // 4th ban
+            last = 1;
+          }
         }
-        timestampInfo.find((val) => val.id == info.id).timestamp = PICK_TIMER; 
         // add new bans, save, return message
         let newTeam = 0;
-        switch(info.data.team){
-          case 1: 
-            newTeam = 2;
-            break;
-          case 2:
-            newTeam = 1;
-            break;
-          default:
-            let returnInfo = JSON.stringify({
-              message: "Failure",
-              errType: "Nonexistent",
-              error: "Please provide a valid team to select.",
-            });
-            gameResult.log += returnInfo + "\n\n";
-            await gameResult.save();
-            return returnInfo;
+        if(last == 0){
+          switch(info.data.team){
+            case 1: 
+              newTeam = 2;
+              break;
+            case 2:
+              newTeam = 1;
+              break;
+          }
+          gameResult.turn = newTeam;
         }
-        if (last != 0) {
+        else {
           newTeam = -1 * last;
+          gameResult.result = "pick";
+          gameResult.turn = last;
         }
-        switch(newTeam){
-          case -1:
-            gameResult.turn = 2;
-            gameResult.result = "pick";
-            break;
-          case -2:
-            gameResult.turn = 1;
-            gameResult.result = "pick";
-            break;
-          default:
-            gameResult.turn = newTeam;
-            break;
-        }
-        gameResult.processing = false;
+        adjustGameTimer(info.id, info.data.team, newTeam);
         let returnInfo = JSON.stringify({
           message: "Success",
           type: "ban",
           ban: info.data.character,
           id: info.id,
+          team: info.data.team,
           nextTeam: newTeam,
         });
         gameResult.log += returnInfo + "\n\n";
         await gameResult.save();
         return returnInfo;
-      }
-            
+      }   
       case "pick": {
         // get character by index from character model and add it to the picks
         if (info.data.character == -3) {
           // choose a random pick
           // first find all picks and bans chosen
-          let infoIds = [];
-          for (let i = 0; i < Math.max(gameResult.bans.length, gameResult.pickst1.length); i++) {
-            if(i < gameResult.pickst1.length){
-              infoIds.push(gameResult.pickst1[i]._id);
-              infoIds.push(gameResult.pickst2[i]._id);
-            }
-            if(i < gameResult.bans.length){
-              infoIds.push(gameResult.bans[i]._id);
-            }
-            // account for extra bans too
-            if(i < gameResult.extrabans.length){
-              infoIds.push(gameResult.extrabans[i]._id);
-            }
-          }
-          infoIds = [...new Set(infoIds)];
-          let newestPick = await character.findOne().sort({ _id: -1 });
-          newestPick = newestPick._id;
-          // find last id
-
+          let infoIds = [...new Set(allPicks)];
           // generate random number
           let randomVal = -1;
-          while (randomVal < 0 || infoIds.includes(randomVal)) {
-            randomVal = Math.floor(Math.random() * (newestPick + 1));
+          // TODO when flins releases remove 103
+          // i used to have a reconnection algorithm... i forgot how but i think i need to re-add it 
+          while (randomVal < 0 || infoIds.includes(randomVal) || randomVal == 103) {
+            randomVal = Math.floor(Math.random() * (newestCharacter + 1));
           }
           info.data.character = randomVal;
         }
         const charPick = await character.findById(info.data.character);
         if (
           charPick == null ||
-          (await checkCharacterExists(info.id, charPick))
+          (checkCharacterExists(allPicks, info.data.character))
         ) {
           info.data.character = -3;
           return await addItems(info, true);
@@ -707,22 +688,18 @@ const addItems = async (info, inside = false) => {
         const swapt1 = [0, 2, 4, 5];
         const swapt2 = [1, 2, 3, 5];
         // find first empty pick
-        let ind = -1;
+        let ind = gameResult[`pickst${info.data.team}`].findIndex(val => val == -1);
+        if(ind == -1){
+          // this should never trigger but return an error anyways
+          console.log("An error occurred with finding picks!");
+        }
+        gameResult[`pickst${info.data.team}`][ind] = info.data.character;
         let newTeam = 0;
         if (info.data.team == 2) {
-          for (let i = 0; i < gameResult.pickst2.length; i++) {
-            if (gameResult.pickst2[i]._id == -1) {
-              ind = i;
-              charPick.chosen = true;
-              gameResult.pickst2[i] = charPick;
-              break;
-            }
-          }
           for (let i = 0; i < swapt2.length; i++) {
             if (ind == swapt2[i]) {
               // found a boundary for team 2 - now it is team 1's turn to pick
               if (i == 1) {
-                // bandage solution - third pick goes back to one more set of bans, where team 2 starts
                 newTeam = -2;
                 gameResult.result = "ban";
               } else {
@@ -736,14 +713,6 @@ const addItems = async (info, inside = false) => {
             newTeam = 2;
           }
         } else {
-          for (let i = 0; i < gameResult.pickst1.length; i++) {
-            if (gameResult.pickst1[i]._id == -1) {
-              ind = i;
-              charPick.chosen = true;
-              gameResult.pickst1[i] = charPick;
-              break;
-            }
-          }
           swapt1.forEach((val) => {
             if (ind == val) {
               newTeam = 2;
@@ -753,7 +722,7 @@ const addItems = async (info, inside = false) => {
             newTeam = 1;
           }
         }
-        timestampInfo.find((val) => val.id == info.id).timestamp = PICK_TIMER; 
+        adjustGameTimer(info.id, info.data.team, newTeam);
         if (ind == swapt1[swapt1.length - 1] && info.data.team == 1) {
           // first team has very last pick
           newTeam = -1;
@@ -766,14 +735,13 @@ const addItems = async (info, inside = false) => {
             timestampInfo.splice(indexToRemove, 1);
           }
           // note: remove game here
-          messageMap.delete(info.id);
+          if(messageMap.has(info.id)){
+            messageMap.delete(info.id);
+          }
         }
         newTeam < 0
           ? (gameResult.turn = -1 * newTeam)
           : (gameResult.turn = 1 * newTeam);
-
-        gameResult.processing = false;
-        // find the first index at which
         let returnInfo = JSON.stringify({
           message: "Success",
           type: "pick",
@@ -808,6 +776,12 @@ const addItems = async (info, inside = false) => {
   }
 }
 
+// not used atm
+/**
+ * add times to website. website does not display times, please do not use.
+ * @param {*} info 
+ * @returns a message with the times and id
+ */
 const addTimes = async (info) => {
   // update the current times
   // info.data is in format of a three digit array: [team (1 or 2), boss number (0 to 6 or 8 depends on division), new time]
@@ -847,7 +821,6 @@ const addTimes = async (info) => {
       type: "times",
       time: info.data,
       id: info.id,
-      game: gameResult
     });
     gameResult.log += returnInfo + "\n\n";
     await gameResult.save();
@@ -865,67 +838,64 @@ const addTimes = async (info) => {
   }
 }
 const switchPhase = async (ID, phase) => { 
-    // change state - drafting (setup), playing (progress), game over (finish)
-    // send this info back to everyone
+  // change state - drafting (setup), playing (progress), game over (finish)
+  // send this info back to everyone
   try{
-      let gameResult = await game.findById(ID);
-      if (gameResult == null) {
-        return JSON.stringify({
-          message: "Failure",
-          errType: "Nonexistent",
-          error: "The id is not valid for a current game.",
-        });
+    let gameResult = await game.findById(ID);
+    if (gameResult == null) {
+      return JSON.stringify({
+        message: "Failure",
+        errType: "Nonexistent",
+        error: "The id is not valid for a current game.",
+      });
+    }
+    phase = phase.toLowerCase();
+    let cond = false;
+    const keywords = ["waiting", "setup", "boss", "bossban", "extraban", "ban", "pick", "progress", "finish", "1", "2"]
+    keywords.forEach(word => {
+      if(word === phase){
+        cond = true;
       }
-      phase = phase.toLowerCase();
-      let cond = false;
-      const keywords = ["waiting","setup","boss", "ban", "pick", "progress","finish","1","2"]
-      keywords.forEach(word => {
-        if(word === phase){
-          cond = true;
-          if(phase == "1"){
-            phase = "Team 1 Wins"
-          }
-          else if(phase == "2"){
-            phase = "Team 2 Wins"
-          }
-        }
-      })
-      if(!cond){
-        let returnInfo = JSON.stringify({
-          message: "Failure",
-          errType: "Phase",
-          error: "Please provide a valid phase.",
-        });
-        gameResult.log += returnInfo + "\n\n";
-        await gameResult.save();
-        return returnInfo;
-      }
-      gameResult.result = ""+phase;
-      // if change phase to boss, game started, so add timer
-      if(phase == "boss"){
-        console.log("added timer");
-        timestampInfo.push({
-          id: ID, 
-          timestamp: PICK_TIMER
-        });
-        // do i really need extraban / pick? meh, the frontend handles this too
-      }
-      else if(phase == "progress"){
-        const indexToRemove = timestampInfo.findIndex((val) => val.id == ID);
-        if(indexToRemove != -1){ // remove to prevent it from continuing to run
-          timestampInfo.splice(indexToRemove, 1);
-          messageMap.delete(info.id);
-        }
-      }
+    })
+    if(!cond){
       let returnInfo = JSON.stringify({
-        message: "Success",
-        type: "phase",
-        newPhase: phase,
-        id: gameResult._id
+        message: "Failure",
+        errType: "Phase",
+        error: "Please provide a valid phase.",
       });
       gameResult.log += returnInfo + "\n\n";
       await gameResult.save();
       return returnInfo;
+    }
+    gameResult.result = ""+phase;
+    // if change phase to boss / bossban / extraban, game started, so add timer
+    if((phase == "bossban" && gameResult.extrabans.length == 0 && gameResult.doBossBans) || (phase == "boss" && gameResult.extrabans.length == 0 && !gameResult.doBossBans) || (gameResult.extrabans.length > 0 && phase == "extraban")){
+      if(gameResult.extrabans.length > 0 && phase == "extraban"){
+        gameResult.turn = gameResult.extrabanst1 > 0 ? 1 : 2; // if t1 has extra bans, they go first, else t2 goes first
+      }
+      startGameTimer(ID, gameResult.turn, gameResult.totalTimeT1, gameResult.totalTimeT2);
+    }
+    else if(phase == "progress"){
+      const indexToRemove = timestampInfo.findIndex((val) => val.id == ID);
+      if(indexToRemove != -1){ // remove to prevent it from continuing to run
+        timestampInfo.splice(indexToRemove, 1);
+        if(messageMap.has(info.id)){
+          messageMap.delete(info.id);
+        }
+      }
+    }
+    let returnInfo = JSON.stringify({
+      message: "Success",
+      type: "phase",
+      id: gameResult._id,
+      newPhase: phase,
+      timerT1: gameResult.totalTimeT1,
+      timerT2: gameResult.totalTimeT2,
+      turn: gameResult.turn
+    });
+    gameResult.log += returnInfo + "\n\n";
+    await gameResult.save();
+    return returnInfo;
   }
   catch(err){
     console.log(err);
@@ -937,13 +907,12 @@ const switchPhase = async (ID, phase) => {
       error: errVal,
     });
   }
-    
 }
 const handleDND = async(info) => {
   let gameResult = await game.findById(info.id);
   if(!(gameResult.result == "progress" || gameResult.result == "finish")){
     // do nothing
-    console.log("failed");
+    // console.log("failed");
     return JSON.stringify({
       message: "Failure",
       errType: "wait",
@@ -952,7 +921,7 @@ const handleDND = async(info) => {
   }
   if(info.values[0] == info.values[1]){
     // do nothing, dropped back to original location
-    console.log("haha do nothing");
+    // console.log("haha do nothing");
     return JSON.stringify({
       message: "Success",
       type: "complete",
@@ -961,11 +930,9 @@ const handleDND = async(info) => {
   }
   else{
     let returnInfo = "";
-    let first = null;
-    let firstInd = 0;
-    let second = null;
-    let secondInd = 0;
     let whereInfo = "";
+    let firstInd = 0;
+    let secondInd = 0;
     switch (info.where) {
       case "boss":
         whereInfo = "bosses";
@@ -987,31 +954,35 @@ const handleDND = async(info) => {
         await gameResult.save();
         return returnInfo;
     }
-    for (let i = 0; i < gameResult[whereInfo].length; i++) {
-      if (gameResult[whereInfo][i]._id == info.values[0]) {
-        first = gameResult[whereInfo][i];
-        firstInd = i;
-      }
-      if (gameResult[whereInfo][i]._id == info.values[1]) {
-        second = gameResult[whereInfo][i];
-        secondInd = i;
-      }
+    firstInd = gameResult[whereInfo].indexOf(info.values[0]);
+    secondInd = gameResult[whereInfo].indexOf(info.values[1]);
+    if(firstInd == -1 || secondInd == -1){
+      returnInfo = JSON.stringify({
+        message: "Failure",
+        errType: "swap",
+        error: "Please choose valid characters / bosses to swap.",
+      });
+      gameResult.log += returnInfo + "\n\n";
+      await gameResult.save();
+      return returnInfo;
     }
-    gameResult[whereInfo][firstInd] = second;
-    gameResult[whereInfo][secondInd] = first;
+    let temp = gameResult[whereInfo][firstInd];
+    gameResult[whereInfo][firstInd] = gameResult[whereInfo][secondInd];
+    gameResult[whereInfo][secondInd] = temp;
     returnInfo = JSON.stringify({
       message: "Success",
       type: "DND",
       id: info.id,
-      where: info.where,
-      newResult: gameResult[whereInfo],
+      where: whereInfo,
+      first: firstInd,
+      second: secondInd
     });
     gameResult.log += returnInfo + "\n\n";
     await gameResult.save();
     return returnInfo;
   }
 }
-const findTurn = async(id, getSelectionInfo = false) => {
+const findTurn = async(id, getSelectionInfo = true) => {
   const gameResult = await game.findById(id);
   let returnInfo = "";
   if (gameResult == null) {
@@ -1022,30 +993,33 @@ const findTurn = async(id, getSelectionInfo = false) => {
     });
   } else if (getSelectionInfo) {
     let stamp = timestampInfo.find((val) => val.id == id);
-    let timer = -1;
+    let timert1 = -1;
+    let timert2 = -1;
     let paused = false;
     if (stamp != undefined) {
-      timer = stamp.timestamp;
+      timert1 = stamp.timestampt1;
+      timert2 = stamp.timestampt2;
     }
     else{
       let paused = pausedInfo.find((val) => val.id == id);
       if(paused != undefined){
-        timer = paused.timestamp;
+        timert1 = paused.timestampt1;
+        timert2 = paused.timestampt2;
         paused = true;
       }
     }
-    // check for pause
 
     returnInfo = JSON.stringify({
       message: "Success",
       type: "turn",
       turn: gameResult.turn,
       id: id,
-      timer: timer,
+      timert1: timert1,
+      timert2: timert2,
       paused: paused,
       requesterOnly: true,
     });
-  } else {
+  } else { 
     returnInfo = JSON.stringify({
       message: "Success",
       type: "turn",
@@ -1060,6 +1034,7 @@ const findTurn = async(id, getSelectionInfo = false) => {
   return returnInfo;
 }
 
+// not needed anymore
 const getInformation = async(query) => {
   if(query == "boss"){
     // find bosses
@@ -1124,15 +1099,15 @@ const checkPlayers = async(info) => {
 const overwrite = async(info) => {
   // instead of limiting to after draft, limit to paused game only aka must be paused
   const gameResult = await game.findById(info.id);
-  let choice = info.which == "boss" ? "bosses" : info.which == "character" ? "pickst"+info.team : info.which == "ban" ? "bans" : "extrabans"
-  // find the info of the original pick
-  // find the info of the new pick
-  // make it ref only, but unconditional
-  // i.e. doesnt get checked
-  // need to check if info.replacement is a character name or is a number
+  let choice = info.which == "boss" ? "bosses" : info.which == "bossban" ? "bossBans" : info.which == "character" ? "pickst"+info.team : info.which == "ban" ? "bans" : "extrabans"
+
+  // let the frontend process if it is a name or an index and if so then send it
+  console.log(info);
+  console.log("info");
+  // test
   let res = undefined;
   // info.original is now an index pass
-  if(info.which == "boss"){
+  if(info.which == "boss" || info.which == "bossban"){
     res = await boss.findById(info.replacement);
   }
   else{
@@ -1142,11 +1117,11 @@ const overwrite = async(info) => {
     return JSON.stringify({
       message: "Failure",
       errType: "Nonexistent",
-      error: "Please choose a boss or character that has been picked!",
+      error: "Please choose a boss or character that exists!",
     });
   }
   if(res != null){
-    gameResult[`${choice}`][info.original] = res; 
+    gameResult[`${choice}`][info.original] = info.replacement; 
     await gameResult.save();
   }
   else{
@@ -1161,7 +1136,8 @@ const overwrite = async(info) => {
     type: "overwrite",
     id: info.id,
     which: choice,
-    replacement: gameResult[`${choice}`]
+    original: info.original,
+    replacement: info.replacement
   });
   gameResult.log += returnInfo + "\n\n";
   await gameResult.save();
@@ -1218,6 +1194,8 @@ const updateTeamNames = async(info) => {
  * @param {*} info the json string parsed as data
  * This data includes player and team names, and pick orders.
  * team is either 1 or 2 always.
+ * this is not in use anymore
+ * @deprecated please use the drag and drop and clicking on player / team names instead.
  */
 const updateTeam = async(info) => {
   const gameResult = await game.findById(info.id);
@@ -1277,7 +1255,7 @@ const updateTeam = async(info) => {
   return returnInfo;
 }
 
-
+// not used anymore, if used again will properly update code
 const updateStatus = async (info) => {
   const gameResult = await game.findById(info.id);
   // console.log(gameResult);
@@ -1348,7 +1326,7 @@ const updateStatus = async (info) => {
   await gameResult.save();
   return returnInfo;
 };
-
+// not used atm
 const findAllIds = async(id) => {
   const gameResult = await game.findById(id);
   if(gameResult == null){
@@ -1362,13 +1340,13 @@ const findAllIds = async(id) => {
   let charIds = [];
   let length = gameResult.bosses.length > gameResult.pickst1.length ? gameResult.bosses.length : gameResult.pickst1.length;
   for(let i = 0; i < length; i++){ 
-    bossIds.push(gameResult.bosses[i]._id)
+    bossIds.push(gameResult.bosses[i])
     if(i < gameResult.bans.length){
-      charIds.push(gameResult.bans[i]._id);
+      charIds.push(gameResult.bans[i]);
     }
     if(i < gameResult.pickst1.length){
-      charIds.push(gameResult.pickst1[i]._id);
-      charIds.push(gameResult.pickst2[i]._id);
+      charIds.push(gameResult.pickst1[i]);
+      charIds.push(gameResult.pickst2[i]);
     }
   }
   bossIds = [...new Set(bossIds)];
@@ -1405,7 +1383,7 @@ const checkPause = (id) => {
 }
 /**
  * gets a game that will be paused (currently not paused)
- * @param {*} id 
+ * @param {number} id 
  * @returns 
  */
 const getPausedGame = (id) => {
@@ -1421,15 +1399,18 @@ const getPausedGame = (id) => {
 const pauseGame = async(id) => {
     // remove from timestampinfo
   let pauseRes = checkPause(id);
-  let timer = -1;
+  let timert1 = -1;
+  let timert2 = -1;
   if(pauseRes != undefined){
     pausedInfo.push(pauseRes);
-    timer = pauseRes.timestamp;
+    timert1 = pauseRes.timestampt1;
+    timert2 = pauseRes.timestampt2;
   }
   return JSON.stringify({
     message: "Success",
     type: "pause",
-    timer: timer,
+    timert1: timert1,
+    timert2: timert2,
     id: id
   })
 }
@@ -1455,82 +1436,111 @@ const getResumedGame = (id) => {
   return -1;
 }
 const resumeGame = async(id) => {
-  // console.log("testtest");
-  // console.log(pausedInfo);
+  let gameResult = await game.findById(id).lean();
   let resumeRes = checkResume(id);
-  let timer = -1;
+  let timert1 = -1;
+  let timert2 = -1;
   if(resumeRes != undefined){
     timestampInfo.push(resumeRes);
-    timer = resumeRes.timestamp;
+    timert1 = resumeRes.timestampt1;
+    timert2 = resumeRes.timestampt2;
   }
   return JSON.stringify({
     message: "Success",
     type: "resume",
-    timer: timer,
+    timert1: timert1,
+    timert2: timert2,
+    turn: gameResult.turn,
     id: id,
   });
 }
 
+const findLatest = async(id) => {
+  // newestBoss = await boss.findOne().sort({_id: -1})._id;
+  // newestChar = await character.findOne().sort({_id: -1})._id;
+  return JSON.stringify({
+    message: "Success",
+    type: "latest",
+    id: id,
+    boss: newestBoss,
+    character: newestCharacter,
+    requesterOnly: true
+  });
+}
+
+/**
+ * start a game with set id, who goes first and how much time each team has.
+ * @param {number} ID the game id 
+ * @param {number} startTurn the starting turn (default t1, t2 for extra ban stuff sometimes)
+ * @param {number} totalTimeT1 the time team 1 has to do picks; defaults to 480s (8 mins) for every single boss ban, ban, and pick combined
+ * @param {number} totalTimeT2 the time team 2 has to do picks; defaults to 480s (8 mins) for every single boss ban, ban, and pick combined
+ */
+const startGameTimer = (ID, startTurn, totalTimeT1 = PICK_TIMER, totalTimeT2 = PICK_TIMER) => {
+  timestampInfo.push({
+    id: ID,
+    timestampt1: totalTimeT1,
+    timestampt2: totalTimeT2,
+    turn: startTurn
+  });
+}
+
+/**
+ * checks if game timer exists, if it does changes it
+ * @param {number} ID the game id
+ * @param {number} originalTurn the current turn
+ * @param {number} newTurn the next turn (i.e. if t1 chooses not last boss then newTurn would be 2)
+ */
+const adjustGameTimer = (ID, originalTurn, newTurn) => {
+  newTurn = Math.abs(newTurn);
+  if(newTurn != 1 && newTurn != 2) return;
+  if (timestampInfo.find((val) => val.id == ID) == undefined) {
+    startGameTimer(ID, newTurn);
+  } else {
+    timestampInfo.find((val) => val.id == ID).turn = newTurn;
+    // timestampInfo.find((val) => val.id == ID)[`timestampt${originalTurn}`]++;
+  }
+}
+
 const checkAmounts = (data, division, type) => {
-    // checks the number of bans / picks / bosses is valid, not too many - data is the array
-    if (type == "boss") {
-        if (division.toLowerCase() == "premiere") {
-          // 9 bossses, otherwise 7
-          return data.length <= 9
-        } else {
-            return data.length <= 7
-        } 
-    } else { 
-        return data.length <= 6
-    }
+  // checks the number of bans / picks / bosses is valid, not too many - data is the array
+  if (type == "boss") {
+    if (division.toLowerCase() == "premiere") {
+      // 9 bossses, otherwise 7
+      return data.length <= 9
+    } else {
+        return data.length <= 7
+    } 
+  } else { 
+      return data.length <= 6
+  }
     
 }
 
 /**
  * Checks if the target boss (information in the value section) has been selected in the current game.
- * @param {Number} ID the game ID
- * @param {Boolean} long if the boss is a long boss or not
- * @param {Number} team the team that chose this boss
- * @param {String} boss the name of the boss
+ * @param {number[]} bosses the list of bosses present currently
+ * @param {boolean} long if the team has chosen a long boss or not
+ * @param {number} bossId the id of the boss
+ * @param {boolean} longBoss if the boss is a long boss or not
  * @returns true if the character is found, false if not
  */
-const checkExists = async (ID, long, team, boss) => {
-  // check for premier or not
-  // query the game for the corresponding item
-  let gameResult = await game.findById(ID);
-  let check = gameResult.get("bosses");
-  // convert to strings and see if one includes the other
-  check = JSON.stringify(check);
-  if(check.includes('"long":true')){ // checks current bosses and long boss, but does not check if the boss is actually long
-    // console.log("long found"); // just to check program can detect a long boss being chosen
-    if (gameResult.longBoss[team - 1] && long) {
-      return true;
-    } // prevent a second long boss from being chosen
-  }
-  if(check.includes(boss)){
-    // console.log("general found");
+const checkExists = (bosses, long, bossId, longBoss) => {
+  if(long && longBoss){
     return true;
   }
-  // console.log("general not found");
+  if(bosses.includes(bossId)){
+    return true;
+  }
   return false;
 }
 /**
  * Checks if the target character (information in the value section) has been banned or picked in the current game.
- * @param {Number} ID the game ID
- * @param {Object} value the JSON string of the character you are checking
+ * @param {number[]} characters the list of characters currently in the match across extra bans, picks, and bans
+ * @param {number} id the id of the character to be checked
  * @returns true if the character is found, false if not
  */
-const checkCharacterExists = async(ID, value) => {
-  if(value == null){
-    return true; // not because it exists, but instead because it should throw an error
-  }
-  let gameResult = await game.findById(ID);
-  let t1 = JSON.stringify(gameResult.get("pickst1"));
-  let t2 = JSON.stringify(gameResult.get("pickst2"));
-  let bans = JSON.stringify(gameResult.get("bans"));
-  let extrabans = JSON.stringify(gameResult.get("extrabans"));
-  let total = t1 + t2 + bans + extrabans;
-  if (total.includes(value.name)) {
+const checkCharacterExists = (characters, id) => {
+  if (characters.includes(id)) {
     return true;
   } else {
     return false;

@@ -5,3 +5,4 @@ flyctl.exe
 Dockerfile
 .dockerignore
 logs/*
+index.ts
